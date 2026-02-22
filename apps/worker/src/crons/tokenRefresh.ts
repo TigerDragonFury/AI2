@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { isExpiredSoon } from '@adavatar/utils';
 import { TOKEN_REFRESH_THRESHOLD_HOURS, PLATFORM_OAUTH } from '@adavatar/config';
+import { sendTokenExpiryEmail } from '../lib/email';
 
 interface TokenRefreshResponse {
   access_token?: string;
@@ -79,6 +80,16 @@ export async function runTokenRefreshCron() {
           metadata: { platform: token.platform },
         },
       });
+      // Send expiry email
+      const expUser = await prisma.user.findUnique({
+        where: { id: token.userId },
+        select: { email: true, name: true },
+      });
+      if (expUser?.email) {
+        sendTokenExpiryEmail(expUser.email, expUser.name ?? '', token.platform).catch(
+          console.error
+        );
+      }
       failed++;
       continue;
     }
@@ -100,6 +111,16 @@ export async function runTokenRefreshCron() {
           metadata: { platform: token.platform },
         },
       });
+      // Send expiry email
+      const failUser = await prisma.user.findUnique({
+        where: { id: token.userId },
+        select: { email: true, name: true },
+      });
+      if (failUser?.email) {
+        sendTokenExpiryEmail(failUser.email, failUser.name ?? '', token.platform).catch(
+          console.error
+        );
+      }
       failed++;
       continue;
     }

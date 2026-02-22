@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -7,6 +8,13 @@ import morgan from 'morgan';
 import { router } from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { notFoundHandler } from './middleware/notFoundHandler';
+
+// ─── Sentry ───────────────────────────────────────────────────────────────────
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 0,
+  environment: process.env.NODE_ENV ?? 'development',
+});
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;

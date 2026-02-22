@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma';
 import { QUEUE_NAMES, CLOUDINARY_FOLDERS } from '@adavatar/utils';
 import { AI_MODELS, AD_GENERATION } from '@adavatar/config';
 import type { AdGenerationJobPayload } from '@adavatar/types';
+import { sendAdReadyEmail } from '../lib/email';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -119,6 +120,15 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
         metadata: { adId },
       },
     });
+
+    // Send email notification
+    const adUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, name: true },
+    });
+    if (adUser?.email) {
+      sendAdReadyEmail(adUser.email, adUser.name ?? '', adId).catch(console.error);
+    }
 
     await job.updateProgress(100);
     console.log(`[adWorker] Ad ${adId} generated successfully`);

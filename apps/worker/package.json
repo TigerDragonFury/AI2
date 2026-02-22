@@ -23,6 +23,7 @@
     "ioredis": "^5.3.2",
     "node-cron": "^3.0.3",
     "resend": "^3.2.0",
+    "@sentry/node": "^7.119.0",
     "undici": "^6.11.0"
   },
   "devDependencies": {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
+import { avatarProcessingQueue } from '../lib/queues';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
 import { rateLimiter } from '../middleware/rateLimiter';
 import { createError } from '../middleware/errorHandler';
@@ -60,7 +61,8 @@ avatarsRouter.post('/', requireAuth, rateLimiter('upload'), async (req: AuthRequ
         status: 'processing',
       },
     });
-    // Job enqueued by worker via separate queue service
+    // Enqueue avatar processing job
+    await avatarProcessingQueue.add('process-avatar', { avatarId: avatar.id });
     res.status(201).json({ data: avatar, success: true });
   } catch (err) {
     next(err);
@@ -87,25 +89,30 @@ avatarsRouter.delete('/:id', requireAuth, async (req: AuthRequest, res, next) =>
 });
 
 // POST /api/avatars/presign — get a presigned Cloudinary upload URL
-avatarsRouter.post('/presign', requireAuth, rateLimiter('upload'), async (req: AuthRequest, res, next) => {
-  try {
-    const timestamp = Math.round(Date.now() / 1000);
-    const folder = CLOUDINARY_FOLDERS.RAW_UPLOADS;
-    const signature = cloudinary.utils.api_sign_request(
-      { timestamp, folder },
-      process.env.CLOUDINARY_API_SECRET!
-    );
-    res.json({
-      data: {
-        signature,
-        timestamp,
-        folder,
-        cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-        apiKey: process.env.CLOUDINARY_API_KEY,
-      },
-      success: true,
-    });
-  } catch (err) {
-    next(err);
+avatarsRouter.post(
+  '/presign',
+  requireAuth,
+  rateLimiter('upload'),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const timestamp = Math.round(Date.now() / 1000);
+      const folder = CLOUDINARY_FOLDERS.RAW_UPLOADS;
+      const signature = cloudinary.utils.api_sign_request(
+        { timestamp, folder },
+        process.env.CLOUDINARY_API_SECRET!
+      );
+      res.json({
+        data: {
+          signature,
+          timestamp,
+          folder,
+          cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+          apiKey: process.env.CLOUDINARY_API_KEY,
+        },
+        success: true,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);

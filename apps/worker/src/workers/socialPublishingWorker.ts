@@ -3,6 +3,7 @@ import { redisConnection } from '../lib/redis';
 import { prisma } from '../lib/prisma';
 import { QUEUE_NAMES } from '@adavatar/utils';
 import type { SocialPublishingJobPayload } from '@adavatar/types';
+import { sendPublishSummaryEmail } from '../lib/email';
 import { publishToTikTok } from './platforms/tiktok';
 import { publishToYouTube } from './platforms/youtube';
 import { publishToInstagram } from './platforms/instagram';
@@ -72,6 +73,15 @@ async function processSocialJob(job: Job<SocialPublishingJobPayload>) {
         metadata: { publishJobId, platform, postId },
       },
     });
+
+    // Send email notification
+    const pubUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, name: true },
+    });
+    if (pubUser?.email) {
+      sendPublishSummaryEmail(pubUser.email, pubUser.name ?? '', [platform]).catch(console.error);
+    }
 
     console.log(`[publishWorker] Published job ${publishJobId} to ${platform} (postId: ${postId})`);
   } catch (err) {

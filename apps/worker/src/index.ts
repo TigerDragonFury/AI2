@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
@@ -17,6 +18,13 @@ import { runTokenRefreshCron } from './crons/tokenRefresh';
 import { runAnalyticsIngestionCron } from './crons/analyticsIngestion';
 
 import { ANALYTICS_CRON, TOKEN_REFRESH_CRON } from '@adavatar/config';
+
+// ─── Sentry ───────────────────────────────────────────────────────────────────
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 0,
+  environment: process.env.NODE_ENV ?? 'development',
+});
 
 // ─── Bull Board UI ────────────────────────────────────────────────────────────
 const serverAdapter = new ExpressAdapter();
