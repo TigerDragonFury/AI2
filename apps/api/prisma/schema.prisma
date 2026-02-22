@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  admin
+  user
+}
+
+enum AvatarStatus {
+  uploading
+  processing
+  ready
+  failed
+}
+
+enum AvatarInputType {
+  image
+  video
+}
+
+enum AdStatus {
+  pending
+  processing
+  ready
+  failed
+}
+
+enum AspectRatio {
+  RATIO_9_16 @map("9:16")
+  RATIO_16_9 @map("16:9")
+  RATIO_1_1  @map("1:1")
+}
+
+enum PlatformName {
+  tiktok
+  youtube
+  instagram
+  facebook
+  snapchat
+}
+
+enum PublishJobStatus {
+  pending
+  processing
+  published
+  failed
+}
+
+enum SubscriptionTier {
+  free
+  pro
+  enterprise
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  name           String?
+  image          String?
+  role           UserRole     @default(user)
+  organizationId String?
+  tier           SubscriptionTier @default(free)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization?  @relation(fields: [organizationId], references: [id])
+  accounts       Account[]
+  sessions       Session[]
+  avatars        Avatar[]
+  products       Product[]
+  ads            Ad[]
+  publishJobs    PublishJob[]
+  platformTokens PlatformToken[]
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Avatar {
+  id             String          @id @default(cuid())
+  userId         String
+  name           String
+  inputType      AvatarInputType
+  rawUrl         String
+  avatarVideoUrl String?
+  status         AvatarStatus    @default(uploading)
+  errorMessage   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ads  Ad[]
+
+  @@map("avatars")
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  imageUrls String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ads  Ad[]
+
+  @@map("products")
+}
+
+model Ad {
+  id                String      @id @default(cuid())
+  userId            String
+  avatarId          String
+  productId         String
+  rawPrompt         String      @db.Text
+  enhancedPrompt    String?     @db.Text
+  aspectRatio       AspectRatio
+  generatedVideoUrl String?
+  status            AdStatus    @default(pending)
+  errorMessage      String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatar      Avatar       @relation(fields: [avatarId], references: [id])
+  product     Product      @relation(fields: [productId], references: [id])
+  publishJobs PublishJob[]
+
+  @@map("ads")
+}
+
+model PlatformToken {
+  id               String       @id @default(cuid())
+  userId           String
+  platform         PlatformName
+  accessToken      String       @db.Text
+  refreshToken     String?      @db.Text
+  expiresAt        DateTime?
+  platformUserId   String
+  platformUsername String
+  isExpired        Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publishJobs PublishJob[]
+
+  @@unique([userId, platform])
+  @@map("platform_tokens")
+}
+
+model PublishJob {
+  id            String           @id @default(cuid())
+  userId        String
+  adId          String
+  platformTokenId String
+  platform      PlatformName
+  caption       String           @db.Text
+  hashtags      String[]
+  scheduledAt   DateTime?
+  publishedAt   DateTime?
+  status        PublishJobStatus @default(pending)
+  postId        String?
+  errorMessage  String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ad            Ad            @relation(fields: [adId], references: [id])
+  platformToken PlatformToken @relation(fields: [platformTokenId], references: [id])
+  analytics     Analytics[]
+
+  @@map("publish_jobs")
+}
+
+model Analytics {
+  id           String   @id @default(cuid())
+  publishJobId String
+  views        Int      @default(0)
+  likes        Int      @default(0)
+  comments     Int      @default(0)
+  shares       Int      @default(0)
+  reach        Int      @default(0)
+  clickThrough Int      @default(0)
+  rawData      Json     @default("{}")
+  fetchedAt    DateTime
+  createdAt    DateTime @default(now())
+
+  publishJob PublishJob @relation(fields: [publishJobId], references: [id], onDelete: Cascade)
+
+  @@map("analytics")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  event     String
+  message   String
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model UsageLimit {
+  id           String           @id @default(cuid())
+  tier         SubscriptionTier
+  feature      String
+  dailyLimit   Int?
+  monthlyLimit Int?
+
+  @@unique([tier, feature])
+  @@map("usage_limits")
+}

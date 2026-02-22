@@ -1,0 +1,1 @@
+export { socialPublishingQueue } from './avatarProcessingQueue';
