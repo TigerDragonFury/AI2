@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { avatarProcessingQueue } from '../lib/queues';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
 import { rateLimiter } from '../middleware/rateLimiter';
+import { checkUsageLimit } from '../middleware/checkUsageLimit';
 import { createError } from '../middleware/errorHandler';
 import { CLOUDINARY_FOLDERS } from '@adavatar/utils';
 import { v2 as cloudinary } from 'cloudinary';
@@ -49,25 +50,31 @@ const createAvatarSchema = z.object({
 });
 
 // POST /api/avatars — create avatar record after upload
-avatarsRouter.post('/', requireAuth, rateLimiter('upload'), async (req: AuthRequest, res, next) => {
-  try {
-    const body = createAvatarSchema.parse(req.body);
-    const avatar = await prisma.avatar.create({
-      data: {
-        userId: req.userId!,
-        name: body.name,
-        rawUrl: body.rawUrl,
-        inputType: body.inputType,
-        status: 'processing',
-      },
-    });
-    // Enqueue avatar processing job
-    await avatarProcessingQueue.add('process-avatar', { avatarId: avatar.id });
-    res.status(201).json({ data: avatar, success: true });
-  } catch (err) {
-    next(err);
+avatarsRouter.post(
+  '/',
+  requireAuth,
+  rateLimiter('upload'),
+  checkUsageLimit('avatar_creation'),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const body = createAvatarSchema.parse(req.body);
+      const avatar = await prisma.avatar.create({
+        data: {
+          userId: req.userId!,
+          name: body.name,
+          rawUrl: body.rawUrl,
+          inputType: body.inputType,
+          status: 'processing',
+        },
+      });
+      // Enqueue avatar processing job
+      await avatarProcessingQueue.add('process-avatar', { avatarId: avatar.id });
+      res.status(201).json({ data: avatar, success: true });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 // DELETE /api/avatars/:id
 avatarsRouter.delete('/:id', requireAuth, async (req: AuthRequest, res, next) => {

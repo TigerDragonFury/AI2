@@ -96,6 +96,8 @@ model User {
   publishJobs    PublishJob[]
   platformTokens PlatformToken[]
   notifications  Notification[]
+  dailyUsage     DailyUsage[]
+  monthlyUsage   MonthlyUsage[]
 
   @@map("users")
 }
@@ -276,7 +278,49 @@ model UsageLimit {
   feature      String
   dailyLimit   Int?
   monthlyLimit Int?
+  updatedAt    DateTime         @updatedAt
+  updatedBy    String?
 
   @@unique([tier, feature])
   @@map("usage_limits")
+}
+
+model DailyUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  feature   String
+  count     Int      @default(0)
+  date      DateTime @db.Date
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, feature, date])
+  @@map("daily_usage")
+}
+
+model MonthlyUsage {
+  id      String @id @default(cuid())
+  userId  String
+  feature String
+  count   Int    @default(0)
+  year    Int
+  month   Int
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, feature, year, month])
+  @@map("monthly_usage")
+}
+
+model LimitChangeLog {
+  id          String           @id @default(cuid())
+  adminId     String
+  tier        SubscriptionTier
+  feature     String
+  oldValue    Int?
+  newValue    Int?
+  limitType   String           // 'daily' | 'monthly'
+  createdAt   DateTime         @default(now())
+
+  @@map("limit_change_log")
 }

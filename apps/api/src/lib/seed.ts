@@ -8,17 +8,17 @@ async function main() {
   // Seed usage limits
   const usageLimits = [
     // Free tier
-    { tier: 'free' as const, feature: 'avatar_uploads', dailyLimit: 2, monthlyLimit: 10 },
-    { tier: 'free' as const, feature: 'ad_generations', dailyLimit: 3, monthlyLimit: 15 },
-    { tier: 'free' as const, feature: 'publish_jobs', dailyLimit: 5, monthlyLimit: 20 },
+    { tier: 'free' as const, feature: 'avatar_creation', dailyLimit: 1, monthlyLimit: 5 },
+    { tier: 'free' as const, feature: 'ad_generation', dailyLimit: 1, monthlyLimit: 10 },
+    { tier: 'free' as const, feature: 'publish_jobs', dailyLimit: 3, monthlyLimit: 30 },
     // Pro tier
-    { tier: 'pro' as const, feature: 'avatar_uploads', dailyLimit: 20, monthlyLimit: 200 },
-    { tier: 'pro' as const, feature: 'ad_generations', dailyLimit: 50, monthlyLimit: 500 },
-    { tier: 'pro' as const, feature: 'publish_jobs', dailyLimit: 100, monthlyLimit: 1000 },
+    { tier: 'pro' as const, feature: 'avatar_creation', dailyLimit: 3, monthlyLimit: 20 },
+    { tier: 'pro' as const, feature: 'ad_generation', dailyLimit: 5, monthlyLimit: 60 },
+    { tier: 'pro' as const, feature: 'publish_jobs', dailyLimit: 15, monthlyLimit: 200 },
     // Enterprise tier
-    { tier: 'enterprise' as const, feature: 'avatar_uploads', dailyLimit: null, monthlyLimit: null },
-    { tier: 'enterprise' as const, feature: 'ad_generations', dailyLimit: null, monthlyLimit: null },
-    { tier: 'enterprise' as const, feature: 'publish_jobs', dailyLimit: null, monthlyLimit: null },
+    { tier: 'enterprise' as const, feature: 'avatar_creation', dailyLimit: 10, monthlyLimit: 100 },
+    { tier: 'enterprise' as const, feature: 'ad_generation', dailyLimit: 10, monthlyLimit: 200 },
+    { tier: 'enterprise' as const, feature: 'publish_jobs', dailyLimit: 50, monthlyLimit: 1000 },
   ];
 
   for (const limit of usageLimits) {

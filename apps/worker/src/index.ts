@@ -16,8 +16,9 @@ import { socialPublishingWorker } from './workers/socialPublishingWorker';
 
 import { runTokenRefreshCron } from './crons/tokenRefresh';
 import { runAnalyticsIngestionCron } from './crons/analyticsIngestion';
+import { runMonthlyResetCron } from './crons/monthlyReset';
 
-import { ANALYTICS_CRON, TOKEN_REFRESH_CRON } from '@adavatar/config';
+import { ANALYTICS_CRON, TOKEN_REFRESH_CRON, MONTHLY_RESET_CRON } from '@adavatar/config';
 
 // ─── Sentry ───────────────────────────────────────────────────────────────────
 Sentry.init({
@@ -32,9 +33,9 @@ serverAdapter.setBasePath('/admin/queues');
 
 createBullBoard({
   queues: [
-    new BullMQAdapter(avatarProcessingQueue),
-    new BullMQAdapter(adGenerationQueue),
-    new BullMQAdapter(socialPublishingQueue),
+    new BullMQAdapter(avatarProcessingQueue) as never,
+    new BullMQAdapter(adGenerationQueue) as never,
+    new BullMQAdapter(socialPublishingQueue) as never,
   ],
   serverAdapter,
 });
@@ -67,6 +68,11 @@ cron.schedule(TOKEN_REFRESH_CRON, () => {
 cron.schedule(ANALYTICS_CRON, () => {
   console.log('[cron] Running analytics ingestion');
   runAnalyticsIngestionCron().catch(console.error);
+});
+
+cron.schedule(MONTHLY_RESET_CRON, () => {
+  console.log('[cron] Running monthly usage reset');
+  runMonthlyResetCron().catch(console.error);
 });
 
 // ─── Graceful shutdown ────────────────────────────────────────────────────────

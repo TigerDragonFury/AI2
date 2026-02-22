@@ -13,6 +13,8 @@ import {
   Share2,
   Settings,
   LogOut,
+  Activity,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NotificationsDropdown } from '@/components/notifications/notifications-dropdown';
@@ -22,6 +24,7 @@ interface SidebarProps {
     name?: string | null;
     email?: string | null;
     image?: string | null;
+    role?: string | null;
   };
 }
 
@@ -34,10 +37,14 @@ const navItems = [
   { href: '/dashboard/analytics', icon: BarChart2, label: 'Analytics' },
   { href: '/dashboard/platforms', icon: Share2, label: 'Platforms' },
   { href: '/dashboard/settings', icon: Settings, label: 'Settings' },
+  { href: '/dashboard/usage', icon: Activity, label: 'Usage' },
 ];
+
+const adminItems = [{ href: '/admin/tiers', icon: ShieldCheck, label: 'Tier Limits' }];
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
+  const isAdmin = user.role === 'admin';
 
   return (
     <aside className="flex h-full w-16 flex-col items-center border-r border-border bg-card py-4 lg:w-56 lg:items-start lg:px-3">
@@ -71,6 +78,34 @@ export function Sidebar({ user }: SidebarProps) {
           );
         })}
       </nav>
+
+      {/* Admin */}
+      {isAdmin && (
+        <>
+          <div className="my-2 border-t border-border" />
+          <p className="mb-1 hidden px-2 text-xs font-semibold uppercase text-muted-foreground lg:block">
+            Admin
+          </p>
+          {adminItems.map(({ href, icon: Icon, label }) => {
+            const isActive = pathname.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  'flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                )}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                <span className="hidden lg:block">{label}</span>
+              </Link>
+            );
+          })}
+        </>
+      )}
 
       {/* User + logout */}
       <div className="w-full border-t border-border pt-4">

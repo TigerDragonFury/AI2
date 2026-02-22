@@ -5,6 +5,7 @@ import { socialPublishingQueue } from '../lib/queues';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
 import { rateLimiter } from '../middleware/rateLimiter';
 import { createError } from '../middleware/errorHandler';
+import { checkUsageLimit } from '../middleware/checkUsageLimit';
 
 export const publishRouter = Router();
 
@@ -21,6 +22,7 @@ publishRouter.post(
   '/',
   requireAuth,
   rateLimiter('publish'),
+  checkUsageLimit('publish_jobs'),
   async (req: AuthRequest, res, next) => {
     try {
       const body = publishSchema.parse(req.body);

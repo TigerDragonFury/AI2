@@ -90,6 +90,7 @@ export const TOKEN_REFRESH_THRESHOLD_HOURS = 24;
 
 export const ANALYTICS_CRON = '0 2 * * *'; // 2 AM daily
 export const TOKEN_REFRESH_CRON = '0 */6 * * *'; // every 6 hours
+export const MONTHLY_RESET_CRON = '0 0 1 * *'; // midnight UTC on 1st of month
 
 // ─── YouTube Defaults ─────────────────────────────────────────────────────────
 

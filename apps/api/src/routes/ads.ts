@@ -5,6 +5,7 @@ import { adGenerationQueue } from '../lib/queues';
 import { requireAuth, type AuthRequest } from '../middleware/auth';
 import { rateLimiter } from '../middleware/rateLimiter';
 import { createError } from '../middleware/errorHandler';
+import { checkUsageLimit } from '../middleware/checkUsageLimit';
 import { enhanceAdPrompt } from '@adavatar/utils';
 
 export const adsRouter = Router();
@@ -56,6 +57,7 @@ adsRouter.post(
   '/generate',
   requireAuth,
   rateLimiter('generation'),
+  checkUsageLimit('ad_generation'),
   async (req: AuthRequest, res, next) => {
     try {
       const body = generateAdSchema.parse(req.body);

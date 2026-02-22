@@ -193,8 +193,53 @@ export type ApiResult<T> = ApiResponse<T> | ApiError;
 export type SubscriptionTier = 'free' | 'pro' | 'enterprise';
 
 export interface UsageLimit {
+  id: string;
   tier: SubscriptionTier;
   feature: string;
   dailyLimit: number | null;
   monthlyLimit: number | null;
+  updatedAt: Date;
+  updatedBy: string | null;
+}
+
+export interface DailyUsage {
+  id: string;
+  userId: string;
+  feature: string;
+  count: number;
+  date: Date;
+}
+
+export interface MonthlyUsage {
+  id: string;
+  userId: string;
+  feature: string;
+  count: number;
+  year: number;
+  month: number;
+}
+
+export interface LimitChangeLog {
+  id: string;
+  adminId: string;
+  tier: SubscriptionTier;
+  feature: string;
+  oldValue: number | null;
+  newValue: number | null;
+  limitType: 'daily' | 'monthly';
+  createdAt: Date;
+}
+
+/** Returned by GET /api/usage */
+export interface UsageFeatureStatus {
+  feature: string;
+  tier: SubscriptionTier;
+  daily: { used: number; limit: number | null };
+  monthly: { used: number; limit: number | null };
+}
+
+/** Returned by GET /api/usage/history */
+export interface UsageHistory {
+  daily: DailyUsage[];
+  monthly: MonthlyUsage[];
 }
