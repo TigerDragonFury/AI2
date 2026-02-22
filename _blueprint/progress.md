@@ -237,3 +237,69 @@
 
 - See `project.md` for full breakdown
 - Next task: see `current_task.md`
+
+---
+
+## Phase 10: Usage Limits & Tier Management
+
+### ✅ 10.1 DB Schema — Usage Models (COMPLETE)
+
+- Added `DailyUsage` model: `(userId, feature, date)` unique key `userId_feature_date`
+- Added `MonthlyUsage` model: `(userId, feature, year, month)` unique key `userId_feature_year_month`
+- Added `LimitChangeLog` model: admin audit trail (adminId, tier, feature, oldValue, newValue, limitType)
+- Updated `UsageLimit` with `updatedAt`, `updatedBy` fields
+- Added `dailyUsage` / `monthlyUsage` relations on `User` model
+- Ran `prisma generate` to regenerate client
+
+### ✅ 10.2 checkUsageLimit Middleware (COMPLETE)
+
+- `apps/api/src/middleware/checkUsageLimit.ts`
+- Factory `checkUsageLimit(feature)` returns Express middleware
+- Checks daily + monthly limits against `UsageLimit` for user's tier
+- Returns 429 with `{ success: false, code: 'daily_limit_reached' | 'monthly_limit_reached' }`
+- Atomically increments both `DailyUsage` and `MonthlyUsage` via `prisma.$transaction`
+- Wired into: `POST /api/avatars`, `POST /api/ads/generate`, `POST /api/publish`
+
+### ✅ 10.3 Usage API Routes (COMPLETE)
+
+- `apps/api/src/routes/usage.ts` mounted at `/api/usage`
+- `GET /api/usage` — current user's live daily + monthly usage per feature
+- `GET /api/usage/history` — last 7 days daily + last 3 months monthly
+- `GET /api/usage/admin/limits` — all tiers × features (admin only)
+- `PUT /api/usage/admin/limits` — upsert limit with audit log (admin only)
+- `GET /api/usage/admin/logs` — last 200 change log entries (admin only)
+
+### ✅ 10.8 Admin Tiers Page (COMPLETE)
+
+- `apps/web/src/app/(dashboard)/admin/tiers/page.tsx`
+- Inline-editable table: 3 tiers × 3 features = 9 rows
+- Each row: daily + monthly number inputs, Save button per row
+- Dirty-state detection; Save calls `PUT /api/usage/admin/limits`
+- Change Log tab: timestamped audit table
+- Admin-only nav item in sidebar (shown only when `user.role === 'admin'`)
+
+### ✅ 10.9 Monthly Reset Cron (COMPLETE)
+
+- `apps/worker/src/crons/monthlyReset.ts`
+- Runs `0 0 1 * *` (1st of each month midnight)
+- Finds users who were at their monthly limit → creates notifications
+- Deletes previous month's `MonthlyUsage` records
+- `MONTHLY_RESET_CRON` constant added to `packages/config/src/index.ts`
+
+### ✅ 10.10 Usage Dashboard Page (COMPLETE)
+
+- `apps/web/src/app/(dashboard)/dashboard/usage/page.tsx`
+- 3 QuotaCard components (avatar creation, ad generation, publishing)
+- 7-day daily bar chart (Recharts), 3-month monthly bar chart
+- SWR fetches `GET /api/usage` (30s refresh) + `GET /api/usage/history`
+- `apps/web/src/components/usage/usage-bars.tsx` — reusable dual progress bars
+  - Color coding: green < 60%, yellow 60–90%, red ≥ 90%
+
+### ✅ Types & Config (COMPLETE)
+
+- `packages/types/src/index.ts`: added `DailyUsage`, `MonthlyUsage`, `LimitChangeLog`,
+  `UsageFeatureStatus`, `UsageHistory`; updated `UsageLimit` with `id`, `updatedAt`, `updatedBy`
+- Seed file updated: correct feature names `avatar_creation`, `ad_generation`, `publish_jobs`
+  with sensible free/pro/enterprise defaults
+
+### Commit: `0796768` — feat: phase 10 usage limits system

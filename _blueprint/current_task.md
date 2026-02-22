@@ -2,7 +2,7 @@
 
 ## Status
 
-All phases 1.1 through 9.4 have been fully implemented.
+All phases 1.1 through 10.10 have been fully implemented and committed.
 
 ## What was built
 
@@ -15,6 +15,28 @@ All phases 1.1 through 9.4 have been fully implemented.
 - Phase 7: Analytics ingestion cron + dashboard with Recharts
 - Phase 8: Notifications dropdown, email via Resend, Sentry monitoring, rate limiting
 - Phase 9: render.yaml, vercel.json, README.md, .env.example
+- Phase 10: Usage limits system (schema, middleware, API, worker cron, frontend)
+
+## Phase 10 Summary
+
+### Backend
+
+- `DailyUsage`, `MonthlyUsage`, `LimitChangeLog` Prisma models
+- `checkUsageLimit(feature)` middleware — enforces per-tier daily + monthly limits
+- Usage API routes: user dashboard + admin CRUD with audit log
+- Monthly reset cron (worker) — clears monthly counters every 1st of month
+
+### Frontend
+
+- `/dashboard/usage` — user quota page with Recharts charts
+- `/admin/tiers` — admin inline-edit table for all tier limits + change log
+- `UsageBars` component — reusable dual progress bars
+- Sidebar updated: Usage link for all users, Tier Limits link for admins only
+
+### Config
+
+- Seed file aligned to correct feature names (`avatar_creation`, `ad_generation`, `publish_jobs`)
+- `MONTHLY_RESET_CRON = '0 0 1 * *'` in `packages/config`
 
 ## Next Steps
 
@@ -23,21 +45,7 @@ All phases 1.1 through 9.4 have been fully implemented.
 3. Run `pnpm dev` to start all services
 4. Connect platform OAuth apps (TikTok, YouTube, Meta, Snapchat developer consoles)
 5. Deploy: push to main → Vercel deploys web, connect Render Blueprint for API + Worker
-   - Show success state with link to avatar gallery
-   - OR show error with message
-6. Redirect to `/dashboard/avatars` after success
 
-### Files to Create
+## Last Commit
 
-- `apps/web/src/app/(dashboard)/dashboard/avatars/new/page.tsx` — upload page
-- `apps/web/src/components/avatar/avatar-upload-form.tsx` — drag-drop form
-- `apps/web/src/hooks/useCloudinaryUpload.ts` — upload logic hook
-
-### Notes
-
-- Use the `useSession` hook for the auth token
-- The presign endpoint returns: `{ signature, timestamp, folder, cloudName, apiKey }`
-- Cloudinary upload URL: `https://api.cloudinary.com/v1_1/{cloudName}/auto/upload`
-- After upload Cloudinary returns `secure_url` — use that as `rawUrl`
-- Worker will automatically process the avatar once the DB record is created
-  (worker polls for new `status: 'processing'` avatars — implement that in 2.2/2.3)
+`0796768` — feat: phase 10 usage limits system (schema, middleware, API, worker cron, frontend)
