@@ -1,10 +1,10 @@
-import { Worker, type Job } from 'bullmq';
+import { Worker, type Job, type ConnectionOptions } from 'bullmq';
 import { v2 as cloudinary } from 'cloudinary';
 import { redisConnection } from '../lib/redis';
 import { prisma } from '../lib/prisma';
 import { QUEUE_NAMES, CLOUDINARY_FOLDERS } from '@adavatar/utils';
 import { AI_MODELS, UPLOAD_LIMITS } from '@adavatar/config';
-import { adGenerationQueue } from '../queues/avatarProcessingQueue';
+import '../queues/avatarProcessingQueue'; // ensure queue is registered
 import type { AvatarProcessingJobPayload } from '@adavatar/types';
 
 cloudinary.config({
@@ -29,16 +29,28 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
 
     if (inputType === 'image') {
       const info = await cloudinary.api.resource(rawUrl, { resource_type: 'image' });
-      if (info.width < UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION || info.height < UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION) {
-        throw new Error(`Image too small. Minimum ${UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION}×${UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION}px required.`);
+      if (
+        info.width < UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION ||
+        info.height < UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION
+      ) {
+        throw new Error(
+          `Image too small. Minimum ${UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION}×${UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION}px required.`
+        );
       }
     } else {
       const info = await cloudinary.api.resource(rawUrl, { resource_type: 'video' });
-      if (info.duration < UPLOAD_LIMITS.AVATAR_MIN_VIDEO_DURATION_SEC || info.duration > UPLOAD_LIMITS.AVATAR_MAX_VIDEO_DURATION_SEC) {
-        throw new Error(`Video duration must be between ${UPLOAD_LIMITS.AVATAR_MIN_VIDEO_DURATION_SEC}–${UPLOAD_LIMITS.AVATAR_MAX_VIDEO_DURATION_SEC}s.`);
+      if (
+        info.duration < UPLOAD_LIMITS.AVATAR_MIN_VIDEO_DURATION_SEC ||
+        info.duration > UPLOAD_LIMITS.AVATAR_MAX_VIDEO_DURATION_SEC
+      ) {
+        throw new Error(
+          `Video duration must be between ${UPLOAD_LIMITS.AVATAR_MIN_VIDEO_DURATION_SEC}–${UPLOAD_LIMITS.AVATAR_MAX_VIDEO_DURATION_SEC}s.`
+        );
       }
       if (info.height < UPLOAD_LIMITS.AVATAR_MIN_VIDEO_RESOLUTION) {
-        throw new Error(`Video resolution must be at least ${UPLOAD_LIMITS.AVATAR_MIN_VIDEO_RESOLUTION}p.`);
+        throw new Error(
+          `Video resolution must be at least ${UPLOAD_LIMITS.AVATAR_MIN_VIDEO_RESOLUTION}p.`
+        );
       }
     }
 
@@ -139,7 +151,7 @@ export const avatarProcessingWorker = new Worker<AvatarProcessingJobPayload>(
   QUEUE_NAMES.AVATAR_PROCESSING,
   processAvatarJob,
   {
-    connection: redisConnection,
+    connection: redisConnection as unknown as ConnectionOptions,
     concurrency: 3,
   }
 );

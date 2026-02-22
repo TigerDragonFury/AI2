@@ -80,7 +80,14 @@ analyticsRouter.get('/ads', requireAuth, async (req: AuthRequest, res, next) => 
       orderBy: { createdAt: 'desc' },
     });
 
-    const result = ads.map((ad) => {
+    type AdRow = {
+      id: string;
+      rawPrompt: string;
+      generatedVideoUrl: string | null;
+      createdAt: Date;
+      publishJobs: { platform: string; analytics: { views: number; likes: number }[] }[];
+    };
+    const result = (ads as AdRow[]).map((ad: AdRow) => {
       let totalViews = 0;
       let totalLikes = 0;
       const platforms: string[] = [];

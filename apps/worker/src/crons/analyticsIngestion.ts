@@ -17,7 +17,14 @@ async function fetchTikTokMetrics(postId: string, accessToken: string): Promise<
   );
   if (!response.ok) throw new Error('TikTok metrics fetch failed');
   const data = (await response.json()) as {
-    data?: { videos?: Array<{ view_count?: number; like_count?: number; comment_count?: number; share_count?: number }> };
+    data?: {
+      videos?: Array<{
+        view_count?: number;
+        like_count?: number;
+        comment_count?: number;
+        share_count?: number;
+      }>;
+    };
   };
   const video = data.data?.videos?.[0] ?? {};
   return {
@@ -38,7 +45,9 @@ async function fetchYouTubeMetrics(videoId: string, accessToken: string): Promis
   );
   if (!response.ok) throw new Error('YouTube metrics fetch failed');
   const data = (await response.json()) as {
-    items?: Array<{ statistics?: { viewCount?: string; likeCount?: string; commentCount?: string } }>;
+    items?: Array<{
+      statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
+    }>;
   };
   const stats = data.items?.[0]?.statistics ?? {};
   return {
@@ -52,7 +61,10 @@ async function fetchYouTubeMetrics(videoId: string, accessToken: string): Promis
   };
 }
 
-async function fetchInstagramMetrics(mediaId: string, accessToken: string): Promise<PlatformMetrics> {
+async function fetchInstagramMetrics(
+  mediaId: string,
+  accessToken: string
+): Promise<PlatformMetrics> {
   const response = await fetch(
     `https://graph.facebook.com/v19.0/${mediaId}/insights?metric=impressions,reach,likes,comments,shares&access_token=${accessToken}`
   );
@@ -111,7 +123,7 @@ export async function runAnalyticsIngestionCron() {
             shares: metrics.shares,
             reach: metrics.reach,
             clickThrough: metrics.clickThrough,
-            rawData: metrics.rawData,
+            rawData: JSON.parse(JSON.stringify(metrics.rawData)),
             fetchedAt: new Date(),
           },
         });

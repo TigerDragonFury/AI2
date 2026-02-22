@@ -29,8 +29,20 @@ platformsRouter.get('/', requireAuth, async (req: AuthRequest, res, next) => {
       },
     });
 
-    const connected = tokens.reduce(
-      (acc, t) => {
+    type PlatformInfo = {
+      connected: boolean;
+      username: string | null;
+      isExpired: boolean;
+      expiresAt: Date | null;
+    };
+    type TokenRow = {
+      platform: string;
+      platformUsername: string;
+      isExpired: boolean;
+      expiresAt: Date | null;
+    };
+    const connected = (tokens as TokenRow[]).reduce(
+      (acc: Record<string, PlatformInfo>, t: TokenRow) => {
         acc[t.platform] = {
           connected: true,
           username: t.platformUsername,
@@ -39,10 +51,7 @@ platformsRouter.get('/', requireAuth, async (req: AuthRequest, res, next) => {
         };
         return acc;
       },
-      {} as Record<
-        string,
-        { connected: boolean; username: string; isExpired: boolean; expiresAt: Date | null }
-      >
+      {} as Record<string, PlatformInfo>
     );
 
     const result = SUPPORTED_PLATFORMS.map((p) => ({

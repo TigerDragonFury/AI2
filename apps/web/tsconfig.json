@@ -4,41 +4,23 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "ES2022"
-    ],
+    "lib": ["dom", "dom.iterable", "ES2022"],
     "jsx": "preserve",
     "incremental": true,
     "composite": false,
+    "baseUrl": ".",
     "plugins": [
       {
         "name": "next"
       }
     ],
     "paths": {
-      "@/*": [
-        "./src/*"
-      ],
-      "@adavatar/types": [
-        "../../packages/types/src"
-      ],
-      "@adavatar/utils": [
-        "../../packages/utils/src"
-      ],
-      "@adavatar/config": [
-        "../../packages/config/src"
-      ]
+      "@/*": ["./src/*"],
+      "@adavatar/types": ["../../packages/types/src"],
+      "@adavatar/utils": ["../../packages/utils/src"],
+      "@adavatar/config": ["../../packages/config/src"]
     }
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
 }

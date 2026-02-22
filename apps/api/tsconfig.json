@@ -6,7 +6,10 @@
     "moduleResolution": "node",
     "outDir": "./dist",
     "rootDir": "./src",
-    "composite": false
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "paths": {}
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
