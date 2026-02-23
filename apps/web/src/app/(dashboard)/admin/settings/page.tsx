@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import useSWR, { mutate as globalMutate } from 'swr';
+import { useSession } from 'next-auth/react';
 import { Save, Trash2, Loader2, Bot, Eye, EyeOff, RefreshCw } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then((r) => r.json());
+const fetcher = (url: string, token: string) =>
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
 
 const SETTINGS_URL = `${API}/api/settings`;
 
@@ -48,9 +50,12 @@ const SETTING_META: Record<
 const ALL_KEYS = Object.keys(SETTING_META);
 
 export default function AdminSettingsPage() {
+  const { data: session } = useSession();
+  const token = session?.accessToken ?? '';
+
   const { data, isLoading } = useSWR<{ success: boolean; data: SettingRow[] }>(
-    SETTINGS_URL,
-    fetcher
+    token ? SETTINGS_URL : null,
+    (url: string) => fetcher(url, token)
   );
 
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -77,8 +82,7 @@ export default function AdminSettingsPage() {
     try {
       const res = await fetch(SETTINGS_URL, {
         method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ key, value: value.trim() }),
       });
       const json = (await res.json()) as { success: boolean; error?: string };
@@ -108,7 +112,7 @@ export default function AdminSettingsPage() {
     try {
       const res = await fetch(`${SETTINGS_URL}/${key}`, {
         method: 'DELETE',
-        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` },
       });
       const json = (await res.json()) as { success: boolean; error?: string };
       if (!json.success) throw new Error(json.error ?? 'Delete failed');

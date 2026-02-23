@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import useSWR, { mutate as globalMutate } from 'swr';
+import { useSession } from 'next-auth/react';
 import { Save, Loader2, AlertTriangle, ShieldCheck, History } from 'lucide-react';
 import type { UsageLimit, LimitChangeLog, SubscriptionTier } from '@adavatar/types';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then((r) => r.json());
+const fetcher = (url: string, token: string) =>
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
 
 const TIERS: SubscriptionTier[] = ['free', 'pro', 'enterprise'];
 const FEATURES = ['avatar_creation', 'ad_generation', 'publish_jobs'];
@@ -26,15 +28,18 @@ export default function AdminTiersPage() {
   const LIMITS_URL = `${API}/api/usage/admin/limits`;
   const LOGS_URL = `${API}/api/usage/admin/logs`;
 
+  const { data: session } = useSession();
+  const token = session?.accessToken ?? '';
+
   const { data: limitsData, isLoading } = useSWR<{
     data: UsageLimit[];
     success: boolean;
-  }>(LIMITS_URL, fetcher);
+  }>(token ? LIMITS_URL : null, (url: string) => fetcher(url, token));
 
   const { data: logsData } = useSWR<{
     data: LimitChangeLog[];
     success: boolean;
-  }>(LOGS_URL, fetcher, { refreshInterval: 15000 });
+  }>(token ? LOGS_URL : null, (url: string) => fetcher(url, token), { refreshInterval: 15000 });
 
   // localEdits stores overrides: "tier__feature" -> { daily, monthly }
   const [edits, setEdits] = useState<Record<string, { daily: string; monthly: string }>>({});
@@ -83,8 +88,7 @@ export default function AdminTiersPage() {
     try {
       const res = await fetch(`${API}/api/usage/admin/limits`, {
         method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           tier,
           feature,
