@@ -148,7 +148,27 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
     await job.updateProgress(100);
     console.log(`[avatarWorker] Avatar ${avatarId} processed successfully`);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    // Cloudinary SDK throws plain objects: { error: { message } }
+    // Handle all throw shapes to avoid "Unknown error" masking real cause
+    let message: string;
+    if (err instanceof Error) {
+      message = err.message;
+    } else if (
+      typeof err === 'object' &&
+      err !== null &&
+      'error' in err &&
+      typeof (err as { error: unknown }).error === 'object' &&
+      (err as { error: { message?: unknown } }).error !== null &&
+      typeof (err as { error: { message: unknown } }).error.message === 'string'
+    ) {
+      message = (err as { error: { message: string } }).error.message;
+    } else {
+      try {
+        message = JSON.stringify(err);
+      } catch {
+        message = String(err);
+      }
+    }
     console.error(`[avatarWorker] Failed to process avatar ${avatarId}: ${message}`);
 
     await prisma.avatar.update({
