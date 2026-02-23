@@ -59,6 +59,21 @@ importers:
       '@sentry/node':
         specifier: ^7.119.0
         version: 7.120.4
+      '@types/cors':
+        specifier: ^2.8.17
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/jsonwebtoken':
+        specifier: ^9.0.6
+        version: 9.0.10
+      '@types/morgan':
+        specifier: ^1.9.9
+        version: 1.9.10
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.33
       '@upstash/ratelimit':
         specifier: ^1.2.0
         version: 1.2.1
@@ -98,31 +113,16 @@ importers:
       resend:
         specifier: ^3.2.0
         version: 3.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
       zod:
         specifier: ^3.22.4
         version: 3.25.76
     devDependencies:
-      '@types/cors':
-        specifier: ^2.8.17
-        version: 2.8.19
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/jsonwebtoken':
-        specifier: ^9.0.6
-        version: 9.0.10
-      '@types/morgan':
-        specifier: ^1.9.9
-        version: 1.9.10
-      '@types/node':
-        specifier: ^20.12.0
-        version: 20.19.33
       tsx:
         specifier: ^4.7.2
         version: 4.21.0
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
 
   apps/web:
     dependencies:
@@ -277,6 +277,15 @@ importers:
       '@sentry/node':
         specifier: ^7.119.0
         version: 7.120.4
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.33
+      '@types/node-cron':
+        specifier: ^3.0.11
+        version: 3.0.11
       bullmq:
         specifier: ^5.4.0
         version: 5.70.0
@@ -301,28 +310,22 @@ importers:
       resend:
         specifier: ^3.2.0
         version: 3.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
       undici:
         specifier: ^6.11.0
         version: 6.23.0
     devDependencies:
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/node':
-        specifier: ^20.12.0
-        version: 20.19.33
-      '@types/node-cron':
-        specifier: ^3.0.11
-        version: 3.0.11
       tsx:
         specifier: ^4.7.2
         version: 4.21.0
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
 
   packages/config:
-    devDependencies:
+    dependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.33
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
@@ -338,7 +341,9 @@ importers:
       '@adavatar/types':
         specifier: workspace:*
         version: link:../types
-    devDependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.33
       typescript:
         specifier: ^5.4.0
         version: 5.9.3

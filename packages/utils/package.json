@@ -12,9 +12,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@adavatar/types": "workspace:*"
-  },
-  "devDependencies": {
+    "@adavatar/types": "workspace:*",
+    "@types/node": "^20.12.0",
     "typescript": "^5.4.0"
   }
 }
