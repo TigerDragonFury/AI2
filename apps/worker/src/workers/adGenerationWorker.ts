@@ -65,7 +65,7 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
 
     // Submit job to HuggingFace
     const submitResponse = await fetch(
-      `https://api-inference.huggingface.co/models/${AI_MODELS.AD_GENERATION_I2V}`,
+      `https://router.huggingface.co/models/${AI_MODELS.AD_GENERATION_I2V}`,
       {
         method: 'POST',
         headers: {

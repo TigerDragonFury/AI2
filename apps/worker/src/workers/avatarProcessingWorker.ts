@@ -89,7 +89,7 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
 
     // Call HuggingFace inference API
     const hfResponse = await fetch(
-      `https://api-inference.huggingface.co/models/${AI_MODELS.AVATAR_ANIMATION}`,
+      `https://router.huggingface.co/models/${AI_MODELS.AVATAR_ANIMATION}`,
       {
         method: 'POST',
         headers: {
