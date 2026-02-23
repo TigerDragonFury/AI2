@@ -41,7 +41,7 @@ export const JOB_OPTIONS = {
 export const AI_MODELS = {
   // HuggingFace (router.huggingface.co) — requires Pro tier for some models
   HF_AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',
-  HF_AD_GENERATION_I2V: 'Wan-AI/Wan2.1-I2V-14B-480P',
+  HF_AD_GENERATION_I2V: 'Wan-AI/Wan2.1-I2V-14B-480P', // HF hasn't released 2.2 yet
   HF_AD_GENERATION_FALLBACK: 'THUDM/CogVideoX-5b-I2V',
 
   // fal.ai (queue.fal.run) — free $10 credits on signup
@@ -50,12 +50,12 @@ export const AI_MODELS = {
 
   // Alibaba Cloud DashScope (dashscope-intl.aliyuncs.com) — 90 days free quota for new users
   // https://www.alibabacloud.com/help/en/model-studio/new-free-quota
-  DASHSCOPE_AVATAR_ANIMATION: 'wan2.1-i2v-turbo', // image → animated video
-  DASHSCOPE_AD_GENERATION_I2V: 'wan2.1-i2v-plus', // higher quality I2V for ads
+  DASHSCOPE_AVATAR_ANIMATION: 'wan2.2-i2v-turbo', // image → animated video (Wan 2.2)
+  DASHSCOPE_AD_GENERATION_I2V: 'wan2.2-i2v-plus', // higher quality I2V for ads (Wan 2.2)
 
   // Legacy aliases (kept for backward compat)
   AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',
-  AD_GENERATION_I2V: 'Wan-AI/Wan2.1-I2V-14B-480P',
+  AD_GENERATION_I2V: 'Wan-AI/Wan2.1-I2V-14B-480P', // legacy alias
   AD_GENERATION_FALLBACK: 'THUDM/CogVideoX-5b-I2V',
 } as const;
 
