@@ -3,8 +3,6 @@ import { QUEUE_NAMES } from '@adavatar/utils';
 import { JOB_OPTIONS } from '@adavatar/config';
 import IORedis from 'ioredis';
 
-const silenceError = () => {};
-
 const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
   maxRetriesPerRequest: null,
   lazyConnect: true,
@@ -14,7 +12,7 @@ const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:
   },
   enableOfflineQueue: false,
 });
-redisConnection.on('error', silenceError);
+redisConnection.on('error', (err) => console.error('[queues] Redis error:', err.message));
 
 function makeQueue(name: string) {
   const q = new Queue(name, {
@@ -26,7 +24,7 @@ function makeQueue(name: string) {
       removeOnFail: JOB_OPTIONS.REMOVE_ON_FAIL,
     },
   });
-  q.on('error', silenceError);
+  q.on('error', (err) => console.error(`[queue:${name}] error:`, err.message));
   return q;
 }
 
