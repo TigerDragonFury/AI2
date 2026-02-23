@@ -56,14 +56,15 @@ services:
       - key: API_BASE_URL
         sync: false
 
-  # ── Worker (Background Worker — no sleep) ─────────────────────────────────
-  - type: worker
+  # ── Worker (Web Service on free plan — background worker type not available) ─
+  - type: web
     name: adavatar-worker
     runtime: node
     plan: free
     rootDir: apps/worker
     buildCommand: pnpm install --frozen-lockfile --ignore-scripts && pnpm exec prisma generate && pnpm build
     startCommand: pnpm start
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production

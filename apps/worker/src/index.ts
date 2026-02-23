@@ -44,7 +44,7 @@ const app = express();
 app.use('/admin/queues', serverAdapter.getRouter());
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-const PORT = process.env.WORKER_PORT ?? 4001;
+const PORT = process.env.PORT ?? process.env.WORKER_PORT ?? 4001;
 app.listen(PORT, () => {
   console.log(`[worker] Bull Board available at http://localhost:${PORT}/admin/queues`);
 });
