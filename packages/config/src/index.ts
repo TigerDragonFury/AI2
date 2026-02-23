@@ -10,10 +10,10 @@ export const UPLOAD_LIMITS = {
   AVATAR_MAX_SIZE_BYTES: 200 * 1024 * 1024, // 200 MB
   PRODUCT_IMAGE_MAX_SIZE_BYTES: 10 * 1024 * 1024, // 10 MB
   PRODUCT_MAX_IMAGES: 10,
-  AVATAR_MIN_IMAGE_DIMENSION: 512, // px
-  AVATAR_MIN_VIDEO_DURATION_SEC: 3,
+  AVATAR_MIN_IMAGE_DIMENSION: 256, // px — lowered from 512 to accept typical downloaded/cropped images
+  AVATAR_MIN_VIDEO_DURATION_SEC: 2,
   AVATAR_MAX_VIDEO_DURATION_SEC: 60,
-  AVATAR_MIN_VIDEO_RESOLUTION: 720, // px height
+  AVATAR_MIN_VIDEO_RESOLUTION: 480, // px height — lowered from 720
 } as const;
 
 // ─── Rate Limits (requests per minute) ───────────────────────────────────────
