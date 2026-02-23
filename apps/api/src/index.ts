@@ -21,9 +21,20 @@ const PORT = process.env.PORT ?? 4000;
 
 // ─── Core middleware ──────────────────────────────────────────────────────────
 app.use(helmet());
+const ALLOWED_ORIGINS = [
+  process.env.WEB_BASE_URL,
+  process.env.NEXTAUTH_URL,
+  'http://localhost:3000',
+].filter(Boolean) as string[];
+
 app.use(
   cors({
-    origin: process.env.NEXTAUTH_URL ?? 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     credentials: true,
   })
 );
