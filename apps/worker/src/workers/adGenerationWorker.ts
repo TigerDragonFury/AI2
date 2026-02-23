@@ -4,7 +4,7 @@ import { redisConnection } from '../lib/redis';
 import { prisma } from '../lib/prisma';
 import { QUEUE_NAMES, CLOUDINARY_FOLDERS } from '@adavatar/utils';
 import { AI_MODELS, AD_GENERATION } from '@adavatar/config';
-import type { AdGenerationJobPayload } from '@adavatar/types';
+
 import { sendAdReadyEmail } from '../lib/email';
 import { dashscopeSubmitVideoTask, dashscopePollVideoTask } from '../lib/dashscope';
 import { detectProvider, getProviderKey } from '../lib/settings';
@@ -36,15 +36,30 @@ async function pollHuggingFaceJob(jobUrl: string, hfToken: string): Promise<Arra
 }
 
 /**
- * Auto-detect the AI provider from env vars.
- * Explicit AI_PROVIDER env var wins; otherwise infer from available keys.
+ * Process an ad generation job. The queue payload only contains { adId };
+ * all other required data is loaded from the database.
  */
-async function processAdJob(job: Job<AdGenerationJobPayload>) {
-  const { adId, userId, avatarVideoUrl, productImageUrls, enhancedPrompt, aspectRatio } = job.data;
+async function processAdJob(job: Job<{ adId: string }>) {
+  const { adId } = job.data;
 
   console.log(`[adWorker] Generating ad ${adId}`);
 
   await prisma.ad.update({ where: { id: adId }, data: { status: 'processing' } });
+
+  // Load all required fields from DB — the job payload only carries adId
+  const ad = await prisma.ad.findUnique({
+    where: { id: adId },
+    include: {
+      product: { select: { imageUrls: true } },
+      avatar: { select: { avatarVideoUrl: true } },
+    },
+  });
+  if (!ad) throw new Error(`Ad ${adId} not found in database`);
+
+  const userId = ad.userId;
+  const productImageUrls: string[] = ad.product?.imageUrls ?? [];
+  const avatarVideoUrl: string = ad.avatar?.avatarVideoUrl ?? '';
+  const enhancedPrompt: string = ad.enhancedPrompt ?? ad.rawPrompt;
 
   try {
     await job.updateProgress(10);
@@ -52,12 +67,17 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
     const provider = await detectProvider();
     console.log(`[adWorker] Using AI provider: ${provider}`);
 
+    // AspectRatio Prisma enum values → pixel dimensions
     const aspectRatioMap: Record<string, { width: number; height: number }> = {
+      RATIO_9_16: { width: 720, height: 1280 },
+      RATIO_16_9: { width: 1280, height: 720 },
+      RATIO_1_1: { width: 720, height: 720 },
+      // Also handle legacy string keys just in case
       '9:16': { width: 720, height: 1280 },
       '16:9': { width: 1280, height: 720 },
       '1:1': { width: 720, height: 720 },
     };
-    const dimensions = aspectRatioMap[aspectRatio] ?? { width: 720, height: 1280 };
+    const dimensions = aspectRatioMap[ad.aspectRatio as string] ?? { width: 720, height: 1280 };
 
     let generatedVideoUrl: string;
 
@@ -271,7 +291,7 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
   }
 }
 
-export const adGenerationWorker = new Worker<AdGenerationJobPayload>(
+export const adGenerationWorker = new Worker<{ adId: string }>(
   QUEUE_NAMES.AD_GENERATION,
   processAdJob,
   {
