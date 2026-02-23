@@ -9,6 +9,15 @@ import { router } from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { notFoundHandler } from './middleware/notFoundHandler';
 
+// ─── Process-level error guards ───────────────────────────────────────────────
+process.on('uncaughtException', (err) => {
+  console.error('[process] uncaughtException:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandledRejection:', reason);
+});
+
 // ─── Sentry ───────────────────────────────────────────────────────────────────
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -58,6 +67,12 @@ app.use(errorHandler);
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
 const server = app.listen(PORT, () => {
   console.log(`[api] listening on port ${PORT}`);
+  console.log(`[api] NODE_ENV=${process.env.NODE_ENV}`);
+  console.log(`[api] ALLOWED_ORIGINS=${JSON.stringify(ALLOWED_ORIGINS)}`);
+  console.log(`[api] DATABASE_URL set=${!!process.env.DATABASE_URL}`);
+  console.log(`[api] DIRECT_URL set=${!!process.env.DIRECT_URL}`);
+  console.log(`[api] API_JWT_SECRET set=${!!process.env.API_JWT_SECRET}`);
+  console.log(`[api] REDIS_URL set=${!!process.env.REDIS_URL}`);
 });
 
 process.on('SIGTERM', () => {
