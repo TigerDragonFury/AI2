@@ -69,7 +69,12 @@ avatarsRouter.post(
       });
       // Enqueue avatar processing job (best-effort — Redis may be unavailable in dev)
       try {
-        await avatarProcessingQueue.add('process-avatar', { avatarId: avatar.id });
+        await avatarProcessingQueue.add('process-avatar', {
+          avatarId: avatar.id,
+          userId: req.userId!,
+          rawUrl: body.rawUrl,
+          inputType: body.inputType,
+        });
       } catch (qErr) {
         console.warn('[queue] avatarProcessingQueue unavailable:', (qErr as Error).message);
       }
