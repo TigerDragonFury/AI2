@@ -1,6 +1,6 @@
 import type { ApiResult } from '@adavatar/types';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://adavatar-api.onrender.com/api';
 
 async function apiFetch<T>(
   path: string,

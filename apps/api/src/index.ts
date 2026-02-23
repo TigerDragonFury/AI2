@@ -24,6 +24,7 @@ app.use(helmet());
 const ALLOWED_ORIGINS = [
   process.env.WEB_BASE_URL,
   process.env.NEXTAUTH_URL,
+  'https://ai-2-web.vercel.app',
   'http://localhost:3000',
 ].filter(Boolean) as string[];
 

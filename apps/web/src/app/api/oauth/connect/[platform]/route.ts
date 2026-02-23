@@ -15,7 +15,7 @@ const CREDS: Record<PlatformName, { clientId: string }> = {
   snapchat: { clientId: process.env.SNAPCHAT_CLIENT_ID! },
 };
 
-const CALLBACK_BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
+const CALLBACK_BASE = process.env.API_BASE_URL ?? 'https://adavatar-api.onrender.com';
 
 export async function GET(_req: Request, { params }: { params: { platform: string } }) {
   const session = await getServerSession(authOptions);
