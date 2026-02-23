@@ -34,6 +34,20 @@ async function pollHuggingFaceJob(jobUrl: string, hfToken: string): Promise<Arra
   throw new Error('HuggingFace job timed out');
 }
 
+/**
+ * Auto-detect the AI provider from env vars.
+ * Explicit AI_PROVIDER env var wins; otherwise infer from available keys.
+ */
+function detectProvider(): string {
+  const explicit = process.env.AI_PROVIDER?.toLowerCase();
+  if (explicit) return explicit;
+  if (process.env.ALIBABA_API_KEY) return 'dashscope';
+  if (process.env.FAL_KEY) return 'fal';
+  if (process.env.HUGGINGFACE_API_KEY) return 'huggingface';
+  // No key found — default to dashscope so the error is descriptive
+  return 'dashscope';
+}
+
 async function processAdJob(job: Job<AdGenerationJobPayload>) {
   const { adId, userId, avatarVideoUrl, productImageUrls, enhancedPrompt, aspectRatio } = job.data;
 
@@ -44,7 +58,7 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
   try {
     await job.updateProgress(10);
 
-    const provider = (process.env.AI_PROVIDER ?? 'dashscope').toLowerCase();
+    const provider = detectProvider();
     console.log(`[adWorker] Using AI provider: ${provider}`);
 
     const aspectRatioMap: Record<string, { width: number; height: number }> = {

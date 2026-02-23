@@ -25,6 +25,20 @@ function extractPublicId(url: string): string {
   return match ? match[1] : url;
 }
 
+/**
+ * Auto-detect the AI provider from env vars.
+ * Explicit AI_PROVIDER env var wins; otherwise infer from available keys.
+ */
+function detectProvider(): string {
+  const explicit = process.env.AI_PROVIDER?.toLowerCase();
+  if (explicit) return explicit;
+  if (process.env.ALIBABA_API_KEY) return 'dashscope';
+  if (process.env.FAL_KEY) return 'fal';
+  if (process.env.HUGGINGFACE_API_KEY) return 'huggingface';
+  // No key found — default to dashscope so the error is descriptive
+  return 'dashscope';
+}
+
 async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
   const { avatarId, userId, rawUrl, inputType } = job.data;
 
@@ -73,7 +87,7 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
     await job.updateProgress(25);
 
     // ── AI Processing ────────────────────────────────────────────────────────
-    const provider = (process.env.AI_PROVIDER ?? 'dashscope').toLowerCase();
+    const provider = detectProvider();
     console.log(`[avatarWorker] Using AI provider: ${provider}`);
 
     let processedVideoUrl: string;
