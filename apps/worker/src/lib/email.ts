@@ -1,12 +1,16 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const FROM = process.env.EMAIL_FROM ?? 'AdAvatar <noreply@adavatar.app>';
+
+// Lazy — only instantiated when RESEND_API_KEY is present, avoiding startup crash
+function getResend(): Resend {
+  if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY not configured');
+  return new Resend(process.env.RESEND_API_KEY);
+}
 
 export async function sendWelcomeEmail(to: string, name: string): Promise<void> {
   if (!process.env.RESEND_API_KEY) return;
-  await resend.emails.send({
+  await getResend().emails.send({
     from: FROM,
     to,
     subject: 'Welcome to AdAvatar 🎉',
@@ -21,7 +25,7 @@ export async function sendWelcomeEmail(to: string, name: string): Promise<void> 
 
 export async function sendAdReadyEmail(to: string, name: string, _adId: string): Promise<void> {
   if (!process.env.RESEND_API_KEY) return;
-  await resend.emails.send({
+  await getResend().emails.send({
     from: FROM,
     to,
     subject: 'Your ad is ready! 🎬',
@@ -40,7 +44,7 @@ export async function sendPublishSummaryEmail(
 ): Promise<void> {
   if (!process.env.RESEND_API_KEY) return;
   const platformList = platforms.map((p) => `<li>${p}</li>`).join('');
-  await resend.emails.send({
+  await getResend().emails.send({
     from: FROM,
     to,
     subject: 'Your ad was published ✅',
@@ -59,7 +63,7 @@ export async function sendTokenExpiryEmail(
   platform: string
 ): Promise<void> {
   if (!process.env.RESEND_API_KEY) return;
-  await resend.emails.send({
+  await getResend().emails.send({
     from: FROM,
     to,
     subject: `Action required: Reconnect your ${platform} account`,
