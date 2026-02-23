@@ -6,6 +6,7 @@ import { QUEUE_NAMES, CLOUDINARY_FOLDERS } from '@adavatar/utils';
 import { AI_MODELS, UPLOAD_LIMITS } from '@adavatar/config';
 import '../queues/avatarProcessingQueue'; // ensure queue is registered
 import type { AvatarProcessingJobPayload } from '@adavatar/types';
+import { dashscopeSubmitVideoTask, dashscopePollVideoTask } from '../lib/dashscope';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -72,7 +73,7 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
     await job.updateProgress(25);
 
     // ── AI Processing ────────────────────────────────────────────────────────
-    const provider = (process.env.AI_PROVIDER ?? 'fal').toLowerCase();
+    const provider = (process.env.AI_PROVIDER ?? 'dashscope').toLowerCase();
     console.log(`[avatarWorker] Using AI provider: ${provider}`);
 
     let processedVideoUrl: string;
@@ -144,6 +145,37 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
 
       // Upload to Cloudinary from URL (no buffer needed)
       const uploadResult = await cloudinary.uploader.upload(falVideoUrl, {
+        resource_type: 'video',
+        folder: CLOUDINARY_FOLDERS.PROCESSED_AVATARS,
+        public_id: avatarId,
+      });
+      processedVideoUrl = uploadResult.secure_url;
+    } else if (provider === 'dashscope') {
+      // ── Alibaba Cloud DashScope (Wan I2V) — 90 days free for new users ────
+      const aliKey = process.env.ALIBABA_API_KEY;
+      if (!aliKey) throw new Error('ALIBABA_API_KEY not configured');
+
+      await job.updateProgress(30);
+
+      const taskId = await dashscopeSubmitVideoTask(
+        AI_MODELS.DASHSCOPE_AVATAR_ANIMATION,
+        { image_url: rawUrl, prompt: 'Animate this portrait naturally' },
+        { size: '720*1280', duration: 5 },
+        aliKey
+      );
+
+      console.log(`[avatarWorker] DashScope task submitted: ${taskId}`);
+
+      const dashVideoUrl = await dashscopePollVideoTask(
+        taskId,
+        aliKey,
+        (pct) => job.updateProgress(30 + Math.floor(pct * 0.4)),
+        300_000 // 5 min
+      );
+
+      await job.updateProgress(70);
+
+      const uploadResult = await cloudinary.uploader.upload(dashVideoUrl, {
         resource_type: 'video',
         folder: CLOUDINARY_FOLDERS.PROCESSED_AVATARS,
         public_id: avatarId,

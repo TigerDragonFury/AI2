@@ -6,6 +6,7 @@ import { QUEUE_NAMES, CLOUDINARY_FOLDERS } from '@adavatar/utils';
 import { AI_MODELS, AD_GENERATION } from '@adavatar/config';
 import type { AdGenerationJobPayload } from '@adavatar/types';
 import { sendAdReadyEmail } from '../lib/email';
+import { dashscopeSubmitVideoTask, dashscopePollVideoTask } from '../lib/dashscope';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -43,7 +44,7 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
   try {
     await job.updateProgress(10);
 
-    const provider = (process.env.AI_PROVIDER ?? 'fal').toLowerCase();
+    const provider = (process.env.AI_PROVIDER ?? 'dashscope').toLowerCase();
     console.log(`[adWorker] Using AI provider: ${provider}`);
 
     const aspectRatioMap: Record<string, { width: number; height: number }> = {
@@ -124,6 +125,40 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
 
       // Upload to Cloudinary from URL
       const uploadResult = await cloudinary.uploader.upload(falVideoUrl, {
+        resource_type: 'video',
+        folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
+        public_id: adId,
+      });
+      generatedVideoUrl = uploadResult.secure_url;
+    } else if (provider === 'dashscope') {
+      // ── Alibaba Cloud DashScope (Wan I2V) — 90 days free for new users ────
+      const aliKey = process.env.ALIBABA_API_KEY;
+      if (!aliKey) throw new Error('ALIBABA_API_KEY not configured');
+
+      await job.updateProgress(15);
+
+      const taskId = await dashscopeSubmitVideoTask(
+        AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
+        {
+          image_url: productImageUrls[0],
+          prompt: enhancedPrompt,
+        },
+        { size: `${dimensions.width}*${dimensions.height}`, duration: 5 },
+        aliKey
+      );
+
+      console.log(`[adWorker] DashScope task submitted: ${taskId}`);
+
+      const dashVideoUrl = await dashscopePollVideoTask(
+        taskId,
+        aliKey,
+        (pct) => job.updateProgress(15 + Math.floor(pct * 0.65)),
+        600_000 // 10 min
+      );
+
+      await job.updateProgress(80);
+
+      const uploadResult = await cloudinary.uploader.upload(dashVideoUrl, {
         resource_type: 'video',
         folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
         public_id: adId,

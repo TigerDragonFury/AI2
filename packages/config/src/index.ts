@@ -48,6 +48,11 @@ export const AI_MODELS = {
   FAL_AVATAR_ANIMATION: 'fal-ai/live-portrait',
   FAL_AD_GENERATION_I2V: 'fal-ai/wan/i2v',
 
+  // Alibaba Cloud DashScope (dashscope-intl.aliyuncs.com) — 90 days free quota for new users
+  // https://www.alibabacloud.com/help/en/model-studio/new-free-quota
+  DASHSCOPE_AVATAR_ANIMATION: 'wan2.1-i2v-turbo', // image → animated video
+  DASHSCOPE_AD_GENERATION_I2V: 'wan2.1-i2v-plus', // higher quality I2V for ads
+
   // Legacy aliases (kept for backward compat)
   AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',
   AD_GENERATION_I2V: 'Wan-AI/Wan2.1-I2V-14B-480P',
