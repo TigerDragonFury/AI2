@@ -17,7 +17,15 @@ const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:
 redisConnection.on('error', silenceError);
 
 function makeQueue(name: string) {
-  const q = new Queue(name, { connection: redisConnection, defaultJobOptions: JOB_OPTIONS });
+  const q = new Queue(name, {
+    connection: redisConnection,
+    defaultJobOptions: {
+      attempts: JOB_OPTIONS.ATTEMPTS,
+      backoff: JOB_OPTIONS.BACKOFF,
+      removeOnComplete: JOB_OPTIONS.REMOVE_ON_COMPLETE,
+      removeOnFail: JOB_OPTIONS.REMOVE_ON_FAIL,
+    },
+  });
   q.on('error', silenceError);
   return q;
 }
