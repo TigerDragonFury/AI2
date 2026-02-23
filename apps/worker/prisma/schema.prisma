@@ -324,3 +324,14 @@ model LimitChangeLog {
 
   @@map("limit_change_log")
 }
+
+// ─── App Settings (admin-managed key-value store) ─────────────────────────────
+// Keys: ai_provider, alibaba_api_key, fal_key, huggingface_api_key
+model AppSetting {
+  key         String   @id
+  value       String   @db.Text
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?  // userId of the admin who last changed it
+
+  @@map("app_settings")
+}

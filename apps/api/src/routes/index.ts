@@ -8,6 +8,7 @@ import { oauthRouter } from './oauth';
 import { analyticsRouter } from './analytics';
 import { notificationsRouter } from './notifications';
 import { usageRouter } from './usage';
+import { settingsRouter } from './settings';
 
 export const router = Router();
 
@@ -20,3 +21,4 @@ router.use('/oauth', oauthRouter);
 router.use('/analytics', analyticsRouter);
 router.use('/notifications', notificationsRouter);
 router.use('/usage', usageRouter);
+router.use('/settings', settingsRouter);

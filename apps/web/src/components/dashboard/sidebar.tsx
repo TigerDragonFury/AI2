@@ -15,6 +15,7 @@ import {
   LogOut,
   Activity,
   ShieldCheck,
+  Bot,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NotificationsDropdown } from '@/components/notifications/notifications-dropdown';
@@ -40,7 +41,10 @@ const navItems = [
   { href: '/dashboard/usage', icon: Activity, label: 'Usage' },
 ];
 
-const adminItems = [{ href: '/admin/tiers', icon: ShieldCheck, label: 'Tier Limits' }];
+const adminItems = [
+  { href: '/admin/tiers', icon: ShieldCheck, label: 'Tier Limits' },
+  { href: '/admin/settings', icon: Bot, label: 'AI Settings' },
+];
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();

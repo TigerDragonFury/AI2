@@ -7,6 +7,7 @@ import { AI_MODELS, UPLOAD_LIMITS } from '@adavatar/config';
 import '../queues/avatarProcessingQueue'; // ensure queue is registered
 import type { AvatarProcessingJobPayload } from '@adavatar/types';
 import { dashscopeSubmitVideoTask, dashscopePollVideoTask } from '../lib/dashscope';
+import { detectProvider, getProviderKey } from '../lib/settings';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -23,20 +24,6 @@ function extractPublicId(url: string): string {
   const clean = url.split('?')[0];
   const match = clean.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[^./]+)?$/);
   return match ? match[1] : url;
-}
-
-/**
- * Auto-detect the AI provider from env vars.
- * Explicit AI_PROVIDER env var wins; otherwise infer from available keys.
- */
-function detectProvider(): string {
-  const explicit = process.env.AI_PROVIDER?.toLowerCase();
-  if (explicit) return explicit;
-  if (process.env.ALIBABA_API_KEY) return 'dashscope';
-  if (process.env.FAL_KEY) return 'fal';
-  if (process.env.HUGGINGFACE_API_KEY) return 'huggingface';
-  // No key found — default to dashscope so the error is descriptive
-  return 'dashscope';
 }
 
 async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
@@ -87,14 +74,14 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
     await job.updateProgress(25);
 
     // ── AI Processing ────────────────────────────────────────────────────────
-    const provider = detectProvider();
+    const provider = await detectProvider();
     console.log(`[avatarWorker] Using AI provider: ${provider}`);
 
     let processedVideoUrl: string;
 
     if (provider === 'fal') {
       // ── fal.ai (LivePortrait) ──────────────────────────────────────────────
-      const falKey = process.env.FAL_KEY;
+      const falKey = await getProviderKey('fal');
       if (!falKey) throw new Error('FAL_KEY not configured');
 
       const falHeaders = {
@@ -166,7 +153,7 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
       processedVideoUrl = uploadResult.secure_url;
     } else if (provider === 'dashscope') {
       // ── Alibaba Cloud DashScope (Wan I2V) — 90 days free for new users ────
-      const aliKey = process.env.ALIBABA_API_KEY;
+      const aliKey = await getProviderKey('dashscope');
       if (!aliKey) throw new Error('ALIBABA_API_KEY not configured');
 
       await job.updateProgress(30);
@@ -197,7 +184,7 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
       processedVideoUrl = uploadResult.secure_url;
     } else {
       // ── HuggingFace (router.huggingface.co) ───────────────────────────────
-      const hfToken = process.env.HUGGINGFACE_API_TOKEN;
+      const hfToken = await getProviderKey('huggingface');
       if (!hfToken) throw new Error('HUGGINGFACE_API_TOKEN not configured');
 
       await job.updateProgress(30);
