@@ -145,7 +145,7 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
       const taskId = await dashscopeSubmitVideoTask(
         AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
         {
-          image_url: productImageUrls[0],
+          img_url: productImageUrls[0],
           prompt: enhancedPrompt,
         },
         { size: `${dimensions.width}*${dimensions.height}`, duration: 5 },

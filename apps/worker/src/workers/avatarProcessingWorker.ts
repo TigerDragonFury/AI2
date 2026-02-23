@@ -160,7 +160,7 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
 
       const taskId = await dashscopeSubmitVideoTask(
         AI_MODELS.DASHSCOPE_AVATAR_ANIMATION,
-        { image_url: rawUrl, prompt: 'Animate this portrait naturally' },
+        { img_url: rawUrl, prompt: 'Animate this portrait naturally' },
         { size: '720*1280', duration: 5 },
         aliKey
       );
