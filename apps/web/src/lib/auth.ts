@@ -51,7 +51,7 @@ export const authOptions: NextAuthOptions = {
         session.accessToken = jwt.sign(
           { userId: user.id, role: dbUser?.role ?? 'user' },
           process.env.API_JWT_SECRET!,
-          { expiresIn: '15m' }
+          { expiresIn: '1h' }
         );
       }
       return session;
