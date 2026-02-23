@@ -39,6 +39,16 @@ export const JOB_OPTIONS = {
 // ─── AI Model IDs ─────────────────────────────────────────────────────────────
 
 export const AI_MODELS = {
+  // HuggingFace (router.huggingface.co) — requires Pro tier for some models
+  HF_AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',
+  HF_AD_GENERATION_I2V: 'Wan-AI/Wan2.1-I2V-14B-480P',
+  HF_AD_GENERATION_FALLBACK: 'THUDM/CogVideoX-5b-I2V',
+
+  // fal.ai (queue.fal.run) — free $10 credits on signup
+  FAL_AVATAR_ANIMATION: 'fal-ai/live-portrait',
+  FAL_AD_GENERATION_I2V: 'fal-ai/wan/i2v',
+
+  // Legacy aliases (kept for backward compat)
   AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',
   AD_GENERATION_I2V: 'Wan-AI/Wan2.1-I2V-14B-480P',
   AD_GENERATION_FALLBACK: 'THUDM/CogVideoX-5b-I2V',

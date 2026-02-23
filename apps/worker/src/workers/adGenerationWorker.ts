@@ -43,8 +43,8 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
   try {
     await job.updateProgress(10);
 
-    const hfToken = process.env.HUGGINGFACE_API_TOKEN;
-    if (!hfToken) throw new Error('HUGGINGFACE_API_TOKEN not configured');
+    const provider = (process.env.AI_PROVIDER ?? 'fal').toLowerCase();
+    console.log(`[adWorker] Using AI provider: ${provider}`);
 
     const aspectRatioMap: Record<string, { width: number; height: number }> = {
       '9:16': { width: 720, height: 1280 },
@@ -53,63 +53,140 @@ async function processAdJob(job: Job<AdGenerationJobPayload>) {
     };
     const dimensions = aspectRatioMap[aspectRatio] ?? { width: 720, height: 1280 };
 
-    const payload = {
-      inputs: {
-        video: avatarVideoUrl,
-        image: productImageUrls[0],
-        prompt: enhancedPrompt,
-        ...dimensions,
-        num_frames: 81,
-      },
-    };
+    let generatedVideoUrl: string;
 
-    // Submit job to HuggingFace
-    const submitResponse = await fetch(
-      `https://router.huggingface.co/models/${AI_MODELS.AD_GENERATION_I2V}`,
-      {
+    if (provider === 'fal') {
+      // ── fal.ai (Wan I2V) ───────────────────────────────────────────────────
+      const falKey = process.env.FAL_KEY;
+      if (!falKey) throw new Error('FAL_KEY not configured');
+
+      const falHeaders = {
+        Authorization: `Key ${falKey}`,
+        'Content-Type': 'application/json',
+      };
+      const falModel = AI_MODELS.FAL_AD_GENERATION_I2V;
+
+      await job.updateProgress(15);
+
+      const submitRes = await fetch(`https://queue.fal.run/${falModel}`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${hfToken}`,
-          'Content-Type': 'application/json',
-          'X-Use-Cache': 'false',
-        },
-        body: JSON.stringify(payload),
+        headers: falHeaders,
+        body: JSON.stringify({
+          image_url: productImageUrls[0],
+          prompt: enhancedPrompt,
+          ...dimensions,
+        }),
+      });
+      if (!submitRes.ok) {
+        const txt = await submitRes.text();
+        throw new Error(`fal.ai submit error ${submitRes.status}: ${txt}`);
       }
-    );
+      const { request_id } = (await submitRes.json()) as { request_id: string };
 
-    await job.updateProgress(20);
+      await job.updateProgress(20);
 
-    let videoBuffer: ArrayBuffer;
+      // Poll for completion (up to 10 min — video gen is slow)
+      const MAX_POLLS = 120;
+      const POLL_INTERVAL_MS = 5000;
+      let completed = false;
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const statusRes = await fetch(
+          `https://queue.fal.run/${falModel}/requests/${request_id}/status`,
+          { headers: falHeaders }
+        );
+        const statusData = (await statusRes.json()) as { status: string; error?: string };
+        if (statusData.status === 'COMPLETED') {
+          completed = true;
+          break;
+        }
+        if (statusData.status === 'FAILED') {
+          throw new Error(`fal.ai job failed: ${statusData.error ?? 'unknown'}`);
+        }
+        await job.updateProgress(20 + Math.floor((i / MAX_POLLS) * 55));
+      }
+      if (!completed) throw new Error('fal.ai job timed out after 10 minutes');
 
-    if (submitResponse.headers.get('content-type')?.includes('video')) {
-      videoBuffer = await submitResponse.arrayBuffer();
+      const resultRes = await fetch(`https://queue.fal.run/${falModel}/requests/${request_id}`, {
+        headers: falHeaders,
+      });
+      if (!resultRes.ok) throw new Error(`fal.ai result fetch error ${resultRes.status}`);
+      const resultData = (await resultRes.json()) as {
+        video?: { url: string };
+        output?: { video?: { url: string }; video_url?: string };
+      };
+      const falVideoUrl =
+        resultData.video?.url ?? resultData.output?.video?.url ?? resultData.output?.video_url;
+      if (!falVideoUrl)
+        throw new Error(`fal.ai returned no video URL: ${JSON.stringify(resultData)}`);
+
+      await job.updateProgress(80);
+
+      // Upload to Cloudinary from URL
+      const uploadResult = await cloudinary.uploader.upload(falVideoUrl, {
+        resource_type: 'video',
+        folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
+        public_id: adId,
+      });
+      generatedVideoUrl = uploadResult.secure_url;
     } else {
-      // Async job — poll for result
-      const jobData = (await submitResponse.json()) as { job_url?: string; url?: string };
-      const pollUrl = jobData.job_url ?? jobData.url;
-      if (!pollUrl) throw new Error('No job URL returned from HuggingFace');
+      // ── HuggingFace ────────────────────────────────────────────────────────
+      const hfToken = process.env.HUGGINGFACE_API_TOKEN;
+      if (!hfToken) throw new Error('HUGGINGFACE_API_TOKEN not configured');
 
-      await job.updateProgress(30);
-      videoBuffer = await pollHuggingFaceJob(pollUrl, hfToken);
+      const payload = {
+        inputs: {
+          video: avatarVideoUrl,
+          image: productImageUrls[0],
+          prompt: enhancedPrompt,
+          ...dimensions,
+          num_frames: 81,
+        },
+      };
+
+      const submitResponse = await fetch(
+        `https://router.huggingface.co/models/${AI_MODELS.HF_AD_GENERATION_I2V}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${hfToken}`,
+            'Content-Type': 'application/json',
+            'X-Use-Cache': 'false',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      await job.updateProgress(20);
+
+      let videoBuffer: ArrayBuffer;
+      if (submitResponse.headers.get('content-type')?.includes('video')) {
+        videoBuffer = await submitResponse.arrayBuffer();
+      } else {
+        const jobData = (await submitResponse.json()) as { job_url?: string; url?: string };
+        const pollUrl = jobData.job_url ?? jobData.url;
+        if (!pollUrl) throw new Error('No job URL returned from HuggingFace');
+        await job.updateProgress(30);
+        videoBuffer = await pollHuggingFaceJob(pollUrl, hfToken);
+      }
+
+      await job.updateProgress(80);
+
+      const base64Video = Buffer.from(videoBuffer).toString('base64');
+      const dataUri = `data:video/mp4;base64,${base64Video}`;
+      const uploadResult = await cloudinary.uploader.upload(dataUri, {
+        resource_type: 'video',
+        folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
+        public_id: adId,
+      });
+      generatedVideoUrl = uploadResult.secure_url;
     }
-
-    await job.updateProgress(80);
-
-    // Upload to Cloudinary
-    const base64Video = Buffer.from(videoBuffer).toString('base64');
-    const dataUri = `data:video/mp4;base64,${base64Video}`;
-
-    const uploadResult = await cloudinary.uploader.upload(dataUri, {
-      resource_type: 'video',
-      folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
-      public_id: adId,
-    });
 
     await job.updateProgress(95);
 
     await prisma.ad.update({
       where: { id: adId },
-      data: { generatedVideoUrl: uploadResult.secure_url, status: 'ready' },
+      data: { generatedVideoUrl: generatedVideoUrl, status: 'ready' },
     });
 
     await prisma.notification.create({

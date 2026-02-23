@@ -71,66 +71,137 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
 
     await job.updateProgress(25);
 
-    // ── AI Processing via HuggingFace ───────────────────────────────────────
-    const hfToken = process.env.HUGGINGFACE_API_TOKEN;
-    if (!hfToken) throw new Error('HUGGINGFACE_API_TOKEN not configured');
+    // ── AI Processing ────────────────────────────────────────────────────────
+    const provider = (process.env.AI_PROVIDER ?? 'fal').toLowerCase();
+    console.log(`[avatarWorker] Using AI provider: ${provider}`);
 
-    // Build payload for LivePortrait
-    const payload = {
-      inputs: rawUrl,
-      parameters: {
-        output_format: 'mp4',
-        duration: 5,
-        loop: true,
-      },
-    };
+    let processedVideoUrl: string;
 
-    await job.updateProgress(30);
+    if (provider === 'fal') {
+      // ── fal.ai (LivePortrait) ──────────────────────────────────────────────
+      const falKey = process.env.FAL_KEY;
+      if (!falKey) throw new Error('FAL_KEY not configured');
 
-    // Call HuggingFace inference API
-    const hfResponse = await fetch(
-      `https://router.huggingface.co/models/${AI_MODELS.AVATAR_ANIMATION}`,
-      {
+      const falHeaders = {
+        Authorization: `Key ${falKey}`,
+        'Content-Type': 'application/json',
+      };
+      const falModel = AI_MODELS.FAL_AVATAR_ANIMATION;
+
+      await job.updateProgress(30);
+
+      // Submit to fal.ai queue
+      const submitRes = await fetch(`https://queue.fal.run/${falModel}`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${hfToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
+        headers: falHeaders,
+        body: JSON.stringify({ image_url: rawUrl }),
+      });
+      if (!submitRes.ok) {
+        const txt = await submitRes.text();
+        throw new Error(`fal.ai submit error ${submitRes.status}: ${txt}`);
       }
-    );
+      const { request_id } = (await submitRes.json()) as { request_id: string };
 
-    if (hfResponse.status === 503) {
-      // Model is loading — BullMQ will retry via exponential backoff
-      const body = (await hfResponse.json().catch(() => ({}))) as { estimated_time?: number };
-      const wait = body.estimated_time ?? 20;
-      throw new Error(`HuggingFace model loading, estimated ${wait}s — will retry`);
+      await job.updateProgress(35);
+
+      // Poll for completion (up to 5 min)
+      const MAX_POLLS = 60;
+      const POLL_INTERVAL_MS = 5000;
+      let completed = false;
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const statusRes = await fetch(
+          `https://queue.fal.run/${falModel}/requests/${request_id}/status`,
+          { headers: falHeaders }
+        );
+        const statusData = (await statusRes.json()) as { status: string; error?: string };
+        if (statusData.status === 'COMPLETED') {
+          completed = true;
+          break;
+        }
+        if (statusData.status === 'FAILED') {
+          throw new Error(`fal.ai job failed: ${statusData.error ?? 'unknown'}`);
+        }
+        await job.updateProgress(35 + Math.floor((i / MAX_POLLS) * 35));
+      }
+      if (!completed) throw new Error('fal.ai job timed out after 5 minutes');
+
+      // Fetch result
+      const resultRes = await fetch(`https://queue.fal.run/${falModel}/requests/${request_id}`, {
+        headers: falHeaders,
+      });
+      if (!resultRes.ok) throw new Error(`fal.ai result fetch error ${resultRes.status}`);
+      const resultData = (await resultRes.json()) as {
+        video?: { url: string };
+        output?: { video?: { url: string }; video_url?: string };
+      };
+      const falVideoUrl =
+        resultData.video?.url ?? resultData.output?.video?.url ?? resultData.output?.video_url;
+      if (!falVideoUrl)
+        throw new Error(`fal.ai returned no video URL: ${JSON.stringify(resultData)}`);
+
+      await job.updateProgress(70);
+
+      // Upload to Cloudinary from URL (no buffer needed)
+      const uploadResult = await cloudinary.uploader.upload(falVideoUrl, {
+        resource_type: 'video',
+        folder: CLOUDINARY_FOLDERS.PROCESSED_AVATARS,
+        public_id: avatarId,
+      });
+      processedVideoUrl = uploadResult.secure_url;
+    } else {
+      // ── HuggingFace (router.huggingface.co) ───────────────────────────────
+      const hfToken = process.env.HUGGINGFACE_API_TOKEN;
+      if (!hfToken) throw new Error('HUGGINGFACE_API_TOKEN not configured');
+
+      await job.updateProgress(30);
+
+      const hfResponse = await fetch(
+        `https://router.huggingface.co/models/${AI_MODELS.HF_AVATAR_ANIMATION}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${hfToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            inputs: rawUrl,
+            parameters: { output_format: 'mp4', duration: 5, loop: true },
+          }),
+        }
+      );
+
+      if (hfResponse.status === 503) {
+        const body = (await hfResponse.json().catch(() => ({}))) as { estimated_time?: number };
+        throw new Error(
+          `HuggingFace model loading, estimated ${body.estimated_time ?? 20}s — will retry`
+        );
+      }
+      if (!hfResponse.ok) {
+        const errorText = await hfResponse.text();
+        throw new Error(`HuggingFace API error ${hfResponse.status}: ${errorText}`);
+      }
+
+      await job.updateProgress(70);
+
+      const videoBuffer = await hfResponse.arrayBuffer();
+      const base64Video = Buffer.from(videoBuffer).toString('base64');
+      const dataUri = `data:video/mp4;base64,${base64Video}`;
+
+      const uploadResult = await cloudinary.uploader.upload(dataUri, {
+        resource_type: 'video',
+        folder: CLOUDINARY_FOLDERS.PROCESSED_AVATARS,
+        public_id: avatarId,
+      });
+      processedVideoUrl = uploadResult.secure_url;
     }
-
-    if (!hfResponse.ok) {
-      const errorText = await hfResponse.text();
-      throw new Error(`HuggingFace API error ${hfResponse.status}: ${errorText}`);
-    }
-
-    await job.updateProgress(70);
-
-    // Upload result to Cloudinary
-    const videoBuffer = await hfResponse.arrayBuffer();
-    const base64Video = Buffer.from(videoBuffer).toString('base64');
-    const dataUri = `data:video/mp4;base64,${base64Video}`;
-
-    const uploadResult = await cloudinary.uploader.upload(dataUri, {
-      resource_type: 'video',
-      folder: CLOUDINARY_FOLDERS.PROCESSED_AVATARS,
-      public_id: avatarId,
-    });
 
     await job.updateProgress(90);
 
     await prisma.avatar.update({
       where: { id: avatarId },
       data: {
-        avatarVideoUrl: uploadResult.secure_url,
+        avatarVideoUrl: processedVideoUrl,
         status: 'ready',
       },
     });
