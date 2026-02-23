@@ -13,6 +13,17 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+/**
+ * Extract the Cloudinary public_id from a secure_url.
+ * e.g. https://res.cloudinary.com/cloud/image/upload/v1234/raw_uploads/abc.jpg
+ *   → raw_uploads/abc
+ */
+function extractPublicId(url: string): string {
+  const clean = url.split('?')[0];
+  const match = clean.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[^./]+)?$/);
+  return match ? match[1] : url;
+}
+
 async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
   const { avatarId, userId, rawUrl, inputType } = job.data;
 
@@ -28,7 +39,9 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
     await job.updateProgress(10);
 
     if (inputType === 'image') {
-      const info = await cloudinary.api.resource(rawUrl, { resource_type: 'image' });
+      const info = await cloudinary.api.resource(extractPublicId(rawUrl), {
+        resource_type: 'image',
+      });
       if (
         info.width < UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION ||
         info.height < UPLOAD_LIMITS.AVATAR_MIN_IMAGE_DIMENSION
@@ -38,7 +51,9 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
         );
       }
     } else {
-      const info = await cloudinary.api.resource(rawUrl, { resource_type: 'video' });
+      const info = await cloudinary.api.resource(extractPublicId(rawUrl), {
+        resource_type: 'video',
+      });
       if (
         info.duration < UPLOAD_LIMITS.AVATAR_MIN_VIDEO_DURATION_SEC ||
         info.duration > UPLOAD_LIMITS.AVATAR_MAX_VIDEO_DURATION_SEC
@@ -85,9 +100,16 @@ async function processAvatarJob(job: Job<AvatarProcessingJobPayload>) {
       }
     );
 
+    if (hfResponse.status === 503) {
+      // Model is loading — BullMQ will retry via exponential backoff
+      const body = (await hfResponse.json().catch(() => ({}))) as { estimated_time?: number };
+      const wait = body.estimated_time ?? 20;
+      throw new Error(`HuggingFace model loading, estimated ${wait}s — will retry`);
+    }
+
     if (!hfResponse.ok) {
       const errorText = await hfResponse.text();
-      throw new Error(`HuggingFace API error: ${errorText}`);
+      throw new Error(`HuggingFace API error ${hfResponse.status}: ${errorText}`);
     }
 
     await job.updateProgress(70);
