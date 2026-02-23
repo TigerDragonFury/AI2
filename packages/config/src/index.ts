@@ -19,9 +19,9 @@ export const UPLOAD_LIMITS = {
 // ─── Rate Limits (requests per minute) ───────────────────────────────────────
 
 export const RATE_LIMITS = {
-  UPLOAD: 10,
-  GENERATION: 5,
-  PUBLISH: 20,
+  UPLOAD: 100,
+  GENERATION: 50,
+  PUBLISH: 100,
 } as const;
 
 // ─── BullMQ Job Options ───────────────────────────────────────────────────────

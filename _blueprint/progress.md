@@ -303,3 +303,120 @@
   with sensible free/pro/enterprise defaults
 
 ### Commit: `0796768` — feat: phase 10 usage limits system
+
+---
+
+## Local Dev Environment Setup (Session — Feb 2026)
+
+### ✅ Supabase connection fixed
+
+- Session pooler: `aws-1-ap-southeast-2.pooler.supabase.com`
+- `DATABASE_URL` uses port `6543` with `?pgbouncer=true`
+- `DIRECT_URL` uses port `5432` (no pgbouncer param)
+- All `updatedAt` columns fixed with `ALTER TABLE ... ALTER COLUMN "updatedAt" SET DEFAULT NOW()` via Supabase SQL Editor
+- `emailVerified DateTime?` column added to `users` table
+
+### ✅ Google OAuth login working
+
+- Root causes found and fixed:
+  1. Wrong adapter: replaced `@auth/prisma-adapter` v2 with `@next-auth/prisma-adapter` v1
+  2. Session strategy changed from `jwt` → `database` (required by PrismaAdapter)
+  3. Session callback updated from `({ session, token })` → `({ session, user })`
+  4. Removed custom `output` from Prisma `generator client {}` block (was generating to wrong path)
+  5. Re-ran `pnpm prisma generate` from `apps/api` + cleared `apps/web/.next`
+- User creation, account linking, session creation all confirmed working
+
+### ✅ Redis graceful failure
+
+- Upstash TCP port 6380 blocked; ioredis retryStrategy returns `null` after 3 attempts
+- Each BullMQ Queue instance has `.on('error', silenceError)`
+- Worker Redis: same pattern in `apps/worker/src/lib/redis.ts`
+
+### ⬜ JWT bridge (NEXT TASK)
+
+- API returns 401 for all authenticated web requests
+- Fix: mint a JWT in `apps/web/src/lib/auth.ts` session callback, expose as `session.accessToken`
+- See `current_task.md` for full implementation steps
+
+### ✅ Env vars resolved
+
+- `CLOUDINARY_CLOUD_NAME=diihbs5cy` — set in `apps/api/.env` and `apps/web/.env.local`
+- `API_JWT_SECRET` — copied from `apps/api/.env` to `apps/web/.env.local` ✅
+
+### ⬜ Remaining env vars
+
+- `SENTRY_DSN` — get from Sentry → Project Settings → Client Keys → DSN (optional for local dev)
+
+---
+
+## Deployment Guide
+
+### Architecture
+
+- `apps/web` → **Vercel** (Next.js)
+- `apps/api` → **Render** web service (Express)
+- `apps/worker` → **Render** background worker (BullMQ)
+- Redis → **Upstash** TCP (works on Render; port 6380 was only blocked locally)
+
+---
+
+### Step 1 — Deploy API + Worker to Render
+
+1. Go to [render.com/dashboard](https://render.com/dashboard) → New → Blueprint
+2. Connect GitHub repo → Render auto-reads `render.yaml` and creates both services
+3. Set these env vars in **both** `adavatar-api` and `adavatar-worker`:
+
+| Key                        | Value                                                                             |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `DATABASE_URL`             | `<your Supabase session pooler URL with password>`                                |
+| `DIRECT_URL`               | `<your Supabase direct URL with password>`                                        |
+| `REDIS_URL`                | `<Upstash TCP URL — rediss://default:<token>@smiling-crow-49380.upstash.io:6380>` |
+| `UPSTASH_REDIS_REST_URL`   | `https://smiling-crow-49380.upstash.io`                                           |
+| `UPSTASH_REDIS_REST_TOKEN` | `<Upstash REST token from upstash.io dashboard>`                                  |
+| `API_JWT_SECRET`           | `<shared secret — copy from apps/api/.env>`                                       |
+| `CLOUDINARY_CLOUD_NAME`    | `diihbs5cy`                                                                       |
+| `CLOUDINARY_API_KEY`       | `879673843434632`                                                                 |
+| `CLOUDINARY_API_SECRET`    | `<Cloudinary API secret from cloudinary.com dashboard>`                           |
+| `HUGGINGFACE_API_TOKEN`    | `<HuggingFace token from huggingface.co/settings/tokens>`                         |
+| `RESEND_API_KEY`           | `<Resend API key from resend.com dashboard>`                                      |
+| `TIKTOK_CLIENT_ID`         | `<TikTok client ID>`                                                              |
+| `TIKTOK_CLIENT_SECRET`     | `<TikTok client secret>`                                                          |
+| `WEB_BASE_URL`             | `https://<your-vercel-url>` (set after Step 2)                                    |
+| `API_BASE_URL`             | `https://adavatar-api.onrender.com`                                               |
+
+4. After first deploy, note the API URL (should be `https://adavatar-api.onrender.com` if name matches)
+
+---
+
+### Step 2 — Deploy Web to Vercel
+
+1. Go to [vercel.com/new](https://vercel.com/new) → Import GitHub repo
+2. **Root Directory**: `apps/web`
+3. Framework auto-detected as Next.js
+4. Set these env vars in the Vercel dashboard:
+
+| Key                    | Value                                                |
+| ---------------------- | ---------------------------------------------------- |
+| `DATABASE_URL`         | `<your Supabase session pooler URL with password>`   |
+| `DIRECT_URL`           | `<your Supabase direct URL with password>`           |
+| `NEXTAUTH_SECRET`      | `<copy from apps/web/.env.local NEXTAUTH_SECRET>`    |
+| `NEXTAUTH_URL`         | `https://<your-vercel-url>` (set after first deploy) |
+| `GOOGLE_CLIENT_ID`     | `<copy from Google Cloud Console OAuth credentials>` |
+| `GOOGLE_CLIENT_SECRET` | `<copy from Google Cloud Console OAuth credentials>` |
+| `API_JWT_SECRET`       | `<shared secret — copy from apps/api/.env>`          |
+| `SENTRY_AUTH_TOKEN`    | `<Sentry auth token from sentry.io settings>`        |
+
+> `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` are already hardcoded in `vercel.json`
+
+5. Click Deploy → get the production URL (e.g. `https://ad-app.vercel.app`)
+
+---
+
+### Step 3 — Post-deploy fixes
+
+1. **Set `NEXTAUTH_URL`** in Vercel dashboard to your real URL → Redeploy
+2. **Set `WEB_BASE_URL`** in Render to the same URL
+3. **Add the Vercel URL to Google OAuth** allowed redirect URIs:
+   - Go to [Google Cloud Console](https://console.cloud.google.com) → APIs → Credentials → your OAuth client
+   - Add to Authorized redirect URIs: `https://<your-vercel-url>/api/auth/callback/google`
+4. Run `pnpm run db:seed` one more time against production DB if needed

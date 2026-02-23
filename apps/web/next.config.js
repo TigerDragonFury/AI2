@@ -5,7 +5,7 @@ const { withSentryConfig } = require('@sentry/nextjs');
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    typedRoutes: true,
+    typedRoutes: false,
   },
   images: {
     remotePatterns: [

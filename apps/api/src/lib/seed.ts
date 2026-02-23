@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -8,9 +9,9 @@ async function main() {
   // Seed usage limits
   const usageLimits = [
     // Free tier
-    { tier: 'free' as const, feature: 'avatar_creation', dailyLimit: 1, monthlyLimit: 5 },
-    { tier: 'free' as const, feature: 'ad_generation', dailyLimit: 1, monthlyLimit: 10 },
-    { tier: 'free' as const, feature: 'publish_jobs', dailyLimit: 3, monthlyLimit: 30 },
+    { tier: 'free' as const, feature: 'avatar_creation', dailyLimit: 10, monthlyLimit: 50 },
+    { tier: 'free' as const, feature: 'ad_generation', dailyLimit: 10, monthlyLimit: 50 },
+    { tier: 'free' as const, feature: 'publish_jobs', dailyLimit: 20, monthlyLimit: 100 },
     // Pro tier
     { tier: 'pro' as const, feature: 'avatar_creation', dailyLimit: 3, monthlyLimit: 20 },
     { tier: 'pro' as const, feature: 'ad_generation', dailyLimit: 5, monthlyLimit: 60 },

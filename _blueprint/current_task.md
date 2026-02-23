@@ -1,51 +1,34 @@
-# Current Task: ALL TASKS COMPLETE ✅
+﻿# Current Task: Deploy to Vercel + Render
 
 ## Status
 
-All phases 1.1 through 10.10 have been fully implemented and committed.
+All local dev issues fixed. Ready to deploy.
 
-## What was built
+## Architecture
 
-- Phase 1: Infrastructure, database, auth, storage, queues, dashboard shell
-- Phase 2: Avatar upload UI + processing workers
-- Phase 3: Product upload UI + gallery
-- Phase 4: Ad creator 3-step wizard + management page
-- Phase 5: Platform OAuth (TikTok, YouTube, Instagram, Facebook, Snapchat)
-- Phase 6: Publishing flow + published posts page
-- Phase 7: Analytics ingestion cron + dashboard with Recharts
-- Phase 8: Notifications dropdown, email via Resend, Sentry monitoring, rate limiting
-- Phase 9: render.yaml, vercel.json, README.md, .env.example
-- Phase 10: Usage limits system (schema, middleware, API, worker cron, frontend)
+```
+Vercel          Render            Upstash         Supabase
+â”€â”€â”€â”€â”€â”€â”€â”€â”€       â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€    â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€     â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+apps/web   â†’    apps/api    â†’    Redis TCP   â†’   PostgreSQL
+(Next.js)       (Express)        port 6380
+                apps/worker
+                (BullMQ)
+```
 
-## Phase 10 Summary
+## Deploy Order
 
-### Backend
+1. **Render first** (API + worker must be live before web points to them)
+2. **Vercel second** (web â€” set NEXTAUTH_URL after first deploy)
+3. **Post-deploy** â€” add Vercel URL to Google OAuth Console + set NEXTAUTH_URL + WEB_BASE_URL
 
-- `DailyUsage`, `MonthlyUsage`, `LimitChangeLog` Prisma models
-- `checkUsageLimit(feature)` middleware — enforces per-tier daily + monthly limits
-- Usage API routes: user dashboard + admin CRUD with audit log
-- Monthly reset cron (worker) — clears monthly counters every 1st of month
+## Full env var tables
 
-### Frontend
+See `progress.md` â†’ "Deployment Guide" section â€” every key and value is listed there.
 
-- `/dashboard/usage` — user quota page with Recharts charts
-- `/admin/tiers` — admin inline-edit table for all tier limits + change log
-- `UsageBars` component — reusable dual progress bars
-- Sidebar updated: Usage link for all users, Tier Limits link for admins only
+## Key notes
 
-### Config
-
-- Seed file aligned to correct feature names (`avatar_creation`, `ad_generation`, `publish_jobs`)
-- `MONTHLY_RESET_CRON = '0 0 1 * *'` in `packages/config`
-
-## Next Steps
-
-1. Fill in `.env` from `.env.example`
-2. Run `pnpm install && cd apps/api && pnpm db:migrate && pnpm db:seed`
-3. Run `pnpm dev` to start all services
-4. Connect platform OAuth apps (TikTok, YouTube, Meta, Snapchat developer consoles)
-5. Deploy: push to main → Vercel deploys web, connect Render Blueprint for API + Worker
-
-## Last Commit
-
-`0796768` — feat: phase 10 usage limits system (schema, middleware, API, worker cron, frontend)
+- `REDIS_URL` for Render = Upstash TCP: `rediss://default:AcDkAAIn...@smiling-crow-49380.upstash.io:6380`
+  (Upstash TCP port 6380 was blocked locally but works fine on Render)
+- `NEXTAUTH_URL` must be set AFTER first Vercel deploy once you have the real URL, then redeploy
+- `vercel.json` root dir must be set to `apps/web` in Vercel dashboard
+- Google OAuth redirect URI to add: `https://<your-vercel-url>/api/auth/callback/google`

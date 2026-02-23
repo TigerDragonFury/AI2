@@ -69,6 +69,7 @@ export function AvatarUploadForm() {
     upload,
     reset,
   } = useCloudinaryUpload({
+    presignUrl: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/api/avatars/presign`,
     onSuccess: handleUploadSuccess,
     onError: (msg) => {
       setApiError(msg);

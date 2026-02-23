@@ -73,12 +73,16 @@ publishRouter.post(
         )
       );
 
-      // Enqueue social publishing jobs
-      await Promise.all(
-        jobs.map((job: { id: string }) =>
-          socialPublishingQueue.add('publish-ad', { publishJobId: job.id })
-        )
-      );
+      // Enqueue social publishing jobs (best-effort — Redis may be unavailable in dev)
+      try {
+        await Promise.all(
+          jobs.map((job: { id: string }) =>
+            socialPublishingQueue.add('publish-ad', { publishJobId: job.id })
+          )
+        );
+      } catch (qErr) {
+        console.warn('[queue] socialPublishingQueue unavailable:', (qErr as Error).message);
+      }
 
       res.status(201).json({ data: jobs, success: true });
     } catch (err) {
@@ -129,7 +133,11 @@ publishRouter.post(
         data: { status: 'pending', errorMessage: null },
       });
 
-      await socialPublishingQueue.add('publish-ad', { publishJobId: updated.id });
+      try {
+        await socialPublishingQueue.add('publish-ad', { publishJobId: updated.id });
+      } catch (qErr) {
+        console.warn('[queue] socialPublishingQueue unavailable:', (qErr as Error).message);
+      }
       res.json({ data: updated, success: true });
     } catch (err) {
       next(err);

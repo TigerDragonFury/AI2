@@ -13,12 +13,18 @@ interface PresignResponse {
 }
 
 interface UseCloudinaryUploadOptions {
+  /** Full URL of the presign endpoint, e.g. `${NEXT_PUBLIC_API_URL}/api/avatars/presign` */
+  presignUrl: string;
   /** Called with the Cloudinary secure_url once upload completes */
   onSuccess?: (url: string) => void;
   onError?: (message: string) => void;
 }
 
-export function useCloudinaryUpload({ onSuccess, onError }: UseCloudinaryUploadOptions = {}) {
+export function useCloudinaryUpload({
+  presignUrl,
+  onSuccess,
+  onError,
+}: UseCloudinaryUploadOptions) {
   const [state, setState] = useState<UploadState>('idle');
   const [progress, setProgress] = useState(0);
   const [secureUrl, setSecureUrl] = useState<string | null>(null);
@@ -33,7 +39,7 @@ export function useCloudinaryUpload({ onSuccess, onError }: UseCloudinaryUploadO
 
       try {
         // 1. Get presign params from our API
-        const presignRes = await fetch('/api/avatars/presign', {
+        const presignRes = await fetch(presignUrl, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
@@ -93,7 +99,7 @@ export function useCloudinaryUpload({ onSuccess, onError }: UseCloudinaryUploadO
         onError?.(msg);
       }
     },
-    [onSuccess, onError]
+    [presignUrl, onSuccess, onError]
   );
 
   const reset = useCallback(() => {

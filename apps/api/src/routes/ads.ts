@@ -95,8 +95,12 @@ adsRouter.post(
         },
       });
 
-      // Job will be picked up by the worker queue
-      await adGenerationQueue.add('generate-ad', { adId: ad.id });
+      // Job will be picked up by the worker queue (best-effort — Redis may be unavailable in dev)
+      try {
+        await adGenerationQueue.add('generate-ad', { adId: ad.id });
+      } catch (qErr) {
+        console.warn('[queue] adGenerationQueue unavailable:', (qErr as Error).message);
+      }
       res.status(201).json({ data: ad, success: true });
     } catch (err) {
       next(err);
@@ -137,7 +141,11 @@ adsRouter.patch(
         },
       });
 
-      await adGenerationQueue.add('generate-ad', { adId: updated.id });
+      try {
+        await adGenerationQueue.add('generate-ad', { adId: updated.id });
+      } catch (qErr) {
+        console.warn('[queue] adGenerationQueue unavailable:', (qErr as Error).message);
+      }
       res.json({ data: updated, success: true });
     } catch (err) {
       next(err);

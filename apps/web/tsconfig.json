@@ -19,7 +19,10 @@
       "@adavatar/types": ["../../packages/types/src"],
       "@adavatar/utils": ["../../packages/utils/src"],
       "@adavatar/config": ["../../packages/config/src"]
-    }
+    },
+    "allowJs": true,
+    "noEmit": true,
+    "isolatedModules": true
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]

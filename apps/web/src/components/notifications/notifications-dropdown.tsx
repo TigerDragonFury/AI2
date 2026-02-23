@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import useSWR from 'swr';
+import { useSession } from 'next-auth/react';
 import { Bell, CheckCheck, X } from 'lucide-react';
 
 const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -15,7 +16,8 @@ interface NotificationItem {
   metadata: Record<string, unknown> | null;
 }
 
-const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then((r) => r.json());
+const fetcher = (url: string, token: string) =>
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
 
 const EVENT_LABELS: Record<string, string> = {
   avatar_processing_complete: 'Avatar Ready',
@@ -30,10 +32,12 @@ const EVENT_LABELS: Record<string, string> = {
 export function NotificationsDropdown() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { data: session } = useSession();
+  const token = session?.accessToken ?? '';
 
   const { data, mutate } = useSWR<{ data: NotificationItem[]; success: boolean }>(
-    `${NEXT_PUBLIC_API_URL}/api/notifications`,
-    fetcher,
+    token ? `${NEXT_PUBLIC_API_URL}/api/notifications` : null,
+    (url: string) => fetcher(url, token),
     { refreshInterval: 30000 }
   );
 
@@ -54,7 +58,7 @@ export function NotificationsDropdown() {
   async function markRead(id: string) {
     await fetch(`${NEXT_PUBLIC_API_URL}/api/notifications/${id}/read`, {
       method: 'PATCH',
-      credentials: 'include',
+      headers: { Authorization: `Bearer ${token}` },
     });
     mutate();
   }
@@ -62,7 +66,7 @@ export function NotificationsDropdown() {
   async function markAllRead() {
     await fetch(`${NEXT_PUBLIC_API_URL}/api/notifications/read-all`, {
       method: 'PATCH',
-      credentials: 'include',
+      headers: { Authorization: `Bearer ${token}` },
     });
     mutate();
   }

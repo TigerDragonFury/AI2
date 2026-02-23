@@ -5,20 +5,15 @@
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "env": {
     "NEXT_PUBLIC_API_URL": "https://adavatar-api.onrender.com",
+    "NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME": "diihbs5cy",
     "NEXT_PUBLIC_SENTRY_DSN": ""
   },
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        }
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" }
       ]
     }
   ]

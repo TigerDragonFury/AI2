@@ -1,6 +1,6 @@
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import type { Request, Response, NextFunction } from 'express';
+import type { Response, NextFunction } from 'express';
 import { RATE_LIMITS } from '@adavatar/config';
 import type { AuthRequest } from './auth';
 
@@ -27,21 +27,26 @@ type LimiterKey = keyof typeof limiters;
 
 export function rateLimiter(type: LimiterKey) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const identifier = req.userId ?? req.ip ?? 'anonymous';
-    const { success, limit, remaining, reset } = await limiters[type].limit(identifier);
+    try {
+      const identifier = req.userId ?? req.ip ?? 'anonymous';
+      const { success, limit, remaining, reset } = await limiters[type].limit(identifier);
 
-    res.setHeader('X-RateLimit-Limit', limit);
-    res.setHeader('X-RateLimit-Remaining', remaining);
-    res.setHeader('X-RateLimit-Reset', reset);
+      res.setHeader('X-RateLimit-Limit', limit);
+      res.setHeader('X-RateLimit-Remaining', remaining);
+      res.setHeader('X-RateLimit-Reset', reset);
 
-    if (!success) {
-      res.setHeader('Retry-After', Math.ceil((reset - Date.now()) / 1000));
-      res.status(429).json({
-        error: 'Too many requests. Please slow down.',
-        code: 'RATE_LIMITED',
-        success: false,
-      });
-      return;
+      if (!success) {
+        res.setHeader('Retry-After', Math.ceil((reset - Date.now()) / 1000));
+        res.status(429).json({
+          error: 'Too many requests. Please slow down.',
+          code: 'RATE_LIMITED',
+          success: false,
+        });
+        return;
+      }
+    } catch (err) {
+      // Fail open — if Upstash is unavailable, don't block the request
+      console.warn('[rate-limiter] Upstash unavailable, skipping:', (err as Error).message);
     }
 
     next();
