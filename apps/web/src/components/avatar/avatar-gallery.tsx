@@ -124,9 +124,9 @@ export function AvatarGallery() {
     ([url, token]) => buildFetcher(token as string)(url),
     {
       refreshInterval: (data) => {
-        // Poll every 5 s while any avatar is still processing
+        // Poll every 10 s while any avatar is still processing
         const hasProcessing = data?.some((a) => a.status === 'processing');
-        return hasProcessing ? 5000 : 30000;
+        return hasProcessing ? 10_000 : 60_000;
       },
     }
   );

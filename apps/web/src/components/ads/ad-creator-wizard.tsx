@@ -202,7 +202,7 @@ function ProductPicker({
           ].join(' ')}
         >
           <div className="aspect-square overflow-hidden bg-muted">
-            {product.imageUrls[0] ? (
+            {product.imageUrls?.[0] ? (
               <img
                 src={product.imageUrls[0]}
                 alt={product.name}

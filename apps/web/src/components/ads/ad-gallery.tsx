@@ -225,7 +225,7 @@ export function AdGallery() {
     {
       refreshInterval: (data) => {
         const hasActive = data?.some((a) => a.status === 'pending' || a.status === 'processing');
-        return hasActive ? 5000 : 30000;
+        return hasActive ? 10_000 : 60_000;
       },
     }
   );

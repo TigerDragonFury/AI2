@@ -17,7 +17,7 @@ function buildFetcher(token: string) {
 function ProductCard({ product, onDelete }: { product: Product; onDelete: (id: string) => void }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const thumb = product.imageUrls[0];
+  const thumb = product.imageUrls?.[0];
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
