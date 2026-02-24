@@ -183,6 +183,10 @@ model Ad {
   enhancedPrompt    String?     @db.Text
   aspectRatio       AspectRatio
   duration          Int         @default(5)
+  dialogueText      String?     @db.Text
+  dialogueLanguage  String?     @default("en")
+  autoDialogue      Boolean     @default(false)
+  voiceAudioUrl     String?
   generatedVideoUrl String?
   status            AdStatus    @default(pending)
   errorMessage      String?

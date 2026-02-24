@@ -53,6 +53,8 @@ export const AI_MODELS = {
   DASHSCOPE_AVATAR_ANIMATION: 'wan2.1-i2v-turbo', // image → animated video
   DASHSCOPE_AD_GENERATION_I2V: 'wan2.6-i2v', // Wan2.6 image-to-video
   DASHSCOPE_AD_IMAGE_EDIT: 'wan2.5-i2i-preview', // Step 1: multi-image fusion (avatar + product → composite)
+  DASHSCOPE_TTS: 'cosyvoice-v3-flash', // CosyVoice multilingual TTS (fast, free 10k chars/month)
+  DASHSCOPE_DIALOGUE_LLM: 'qwen-plus', // Qwen text model for auto-generating dialogue scripts
 
   // Legacy aliases (kept for backward compat)
   AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',
@@ -67,6 +69,35 @@ export const AD_GENERATION = {
   POLL_INTERVAL_MS: 5000,
   MAX_POLL_ATTEMPTS: 60, // 5 min max
 } as const;
+
+// ─── Voice / Dialogue Config ──────────────────────────────────────────────────
+
+/**
+ * CosyVoice v3 supports multilingual output — the same voice can speak any language
+ * based on the text content. These voices are default assignments per language.
+ * See: https://www.alibabacloud.com/help/en/model-studio/cosyvoice
+ */
+export const TTS_VOICE_BY_LANGUAGE: Record<string, string> = {
+  en: 'longxiaochun', // default multilingual voice — speaks English naturally
+  ar: 'longxiaochun', // Arabic text → Arabic speech with the same voice
+  fr: 'longxiaochun', // French
+  es: 'longxiaochun', // Spanish
+  de: 'longxiaochun', // German
+  ja: 'longxiaochun', // Japanese
+  ko: 'longxiaochun', // Korean
+  zh: 'longxiaochun', // Chinese (native)
+};
+
+export const SUPPORTED_DIALOGUE_LANGUAGES = [
+  { value: 'en', label: 'English' },
+  { value: 'ar', label: 'Arabic (العربية)' },
+  { value: 'fr', label: 'French (Français)' },
+  { value: 'es', label: 'Spanish (Español)' },
+  { value: 'de', label: 'German (Deutsch)' },
+  { value: 'ja', label: 'Japanese (日本語)' },
+  { value: 'ko', label: 'Korean (한국어)' },
+  { value: 'zh', label: 'Chinese (中文)' },
+] as const;
 
 // ─── Platform Configs ─────────────────────────────────────────────────────────
 

@@ -55,6 +55,10 @@ const generateAdSchema = z.object({
     .union([z.literal(3), z.literal(5)])
     .optional()
     .default(5),
+  // Dialogue / voiceover
+  dialogueText: z.string().max(500).optional(),
+  autoDialogue: z.boolean().optional().default(false),
+  dialogueLanguage: z.string().max(10).optional().default('en'),
 });
 
 // POST /api/ads/generate
@@ -101,6 +105,9 @@ adsRouter.post(
           enhancedPrompt,
           aspectRatio: aspectRatioMap[body.aspectRatio],
           duration: body.duration,
+          dialogueText: body.dialogueText ?? null,
+          dialogueLanguage: body.dialogueLanguage ?? 'en',
+          autoDialogue: body.autoDialogue ?? false,
           status: 'pending',
         },
       });

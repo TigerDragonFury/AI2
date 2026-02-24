@@ -13,8 +13,11 @@ import {
   Users,
   Package,
   Sparkles,
+  Mic,
+  MessageSquare,
 } from 'lucide-react';
 import type { Avatar, Product, AspectRatio } from '@adavatar/types';
+import { SUPPORTED_DIALOGUE_LANGUAGES } from '@adavatar/config';
 
 // ─── SWR helpers ──────────────────────────────────────────────────────────────
 
@@ -30,6 +33,7 @@ const STEPS = [
   { label: 'Choose Avatar', icon: Users },
   { label: 'Choose Product', icon: Package },
   { label: 'Write Prompt', icon: Sparkles },
+  { label: 'Voice & Dialogue', icon: Mic },
 ];
 
 function StepBar({ current }: { current: number }) {
@@ -329,7 +333,112 @@ function PromptStep({
   );
 }
 
-// ─── Main wizard ──────────────────────────────────────────────────────────────
+// ─── Voice & Dialogue step ────────────────────────────────────────────────────
+
+function VoiceStep({
+  autoDialogue,
+  dialogueText,
+  dialogueLanguage,
+  onAutoDialogueChange,
+  onDialogueTextChange,
+  onLanguageChange,
+}: {
+  autoDialogue: boolean;
+  dialogueText: string;
+  dialogueLanguage: string;
+  onAutoDialogueChange: (v: boolean) => void;
+  onDialogueTextChange: (v: string) => void;
+  onLanguageChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      {/* Language selector */}
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium">Voiceover Language</label>
+        <select
+          value={dialogueLanguage}
+          onChange={(e) => onLanguageChange(e.target.value)}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          {SUPPORTED_DIALOGUE_LANGUAGES.map((lang) => (
+            <option key={lang.value} value={lang.value}>
+              {lang.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">The AI voice will speak in this language.</p>
+      </div>
+
+      {/* Auto vs Manual toggle */}
+      <div className="space-y-3">
+        <label className="block text-sm font-medium">Dialogue Script</label>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => onAutoDialogueChange(true)}
+            className={[
+              'flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 text-center transition-all',
+              autoDialogue
+                ? 'border-primary bg-primary/5 text-primary'
+                : 'border-border hover:border-primary/40',
+            ].join(' ')}
+          >
+            <Sparkles className="h-5 w-5" />
+            <span className="text-sm font-semibold">Auto-generate</span>
+            <span className="text-xs text-muted-foreground">AI writes the script for you</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onAutoDialogueChange(false)}
+            className={[
+              'flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 text-center transition-all',
+              !autoDialogue
+                ? 'border-primary bg-primary/5 text-primary'
+                : 'border-border hover:border-primary/40',
+            ].join(' ')}
+          >
+            <MessageSquare className="h-5 w-5" />
+            <span className="text-sm font-semibold">Write my own</span>
+            <span className="text-xs text-muted-foreground">Type your dialogue below</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Custom dialogue input */}
+      {!autoDialogue && (
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium">
+            Your Dialogue <span className="text-muted-foreground">(optional)</span>
+          </label>
+          <textarea
+            value={dialogueText}
+            onChange={(e) => onDialogueTextChange(e.target.value)}
+            rows={4}
+            maxLength={500}
+            placeholder="E.g. 'Guys, I've been using this product for two weeks and the results are insane. You HAVE to try it.'"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Leave empty to generate a silent video.</span>
+            <span>{dialogueText.length}/500</span>
+          </p>
+        </div>
+      )}
+
+      {autoDialogue && (
+        <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">AI will auto-generate a script</p>
+          <p className="mt-1 text-xs">
+            Based on your prompt and product, the AI will write natural, engaging voiceover lines
+            and convert them to speech in the selected language.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main wizard ───────────────────────────────────────────────────────────────
 
 export function AdCreatorWizard() {
   const router = useRouter();
@@ -340,12 +449,15 @@ export function AdCreatorWizard() {
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
   const [duration, setDuration] = useState(5);
+  const [autoDialogue, setAutoDialogue] = useState(true);
+  const [dialogueText, setDialogueText] = useState('');
+  const [dialogueLanguage, setDialogueLanguage] = useState('en');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const token = session?.accessToken as string | undefined;
 
-  const canNext = [!!avatarId, !!productId, prompt.length >= 10][step];
+  const canNext = [!!avatarId, !!productId, prompt.length >= 10, true][step];
 
   const handleSubmit = async () => {
     if (!token || !avatarId || !productId || prompt.length < 10) return;
@@ -356,7 +468,16 @@ export function AdCreatorWizard() {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ads/generate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatarId, productId, rawPrompt: prompt, aspectRatio, duration }),
+        body: JSON.stringify({
+          avatarId,
+          productId,
+          rawPrompt: prompt,
+          aspectRatio,
+          duration,
+          autoDialogue,
+          dialogueText: autoDialogue ? undefined : dialogueText || undefined,
+          dialogueLanguage,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -390,6 +511,16 @@ export function AdCreatorWizard() {
             onPromptChange={setPrompt}
             onAspectChange={setAspectRatio}
             onDurationChange={setDuration}
+          />
+        )}
+        {step === 3 && (
+          <VoiceStep
+            autoDialogue={autoDialogue}
+            dialogueText={dialogueText}
+            dialogueLanguage={dialogueLanguage}
+            onAutoDialogueChange={setAutoDialogue}
+            onDialogueTextChange={setDialogueText}
+            onLanguageChange={setDialogueLanguage}
           />
         )}
       </div>

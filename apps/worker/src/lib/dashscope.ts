@@ -200,3 +200,168 @@ export async function dashscopePollImageTask(
 
   throw new Error(`DashScope image task ${taskId} timed out after ${maxWaitMs / 1000}s`);
 }
+
+// ─── CosyVoice TTS ────────────────────────────────────────────────────────────
+
+/**
+ * Generate speech audio from text using DashScope CosyVoice TTS.
+ * Returns the raw audio as a Buffer (MP3 format).
+ *
+ * The API streams audio via Server-Sent Events; each event carries a
+ * base64-encoded audio chunk. We collect all chunks and concatenate them.
+ *
+ * @param text    The dialogue/script to synthesise (max ~500 characters recommended)
+ * @param voice   Voice ID, e.g. "longxiaochun" (multilingual, default)
+ * @param model   TTS model, e.g. "cosyvoice-v3-flash"
+ * @param apiKey  DashScope API key
+ */
+export async function dashscopeTextToSpeech(
+  text: string,
+  voice: string,
+  model: string,
+  apiKey: string
+): Promise<Buffer> {
+  const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text2audio/synthesis`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'X-DashScope-SSE': 'enable',
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify({
+      model,
+      input: { text },
+      parameters: { voice, format: 'mp3', sample_rate: 22050 },
+    }),
+  });
+
+  if (!res.ok || !res.body) {
+    const txt = await res.text();
+    throw new Error(`DashScope TTS error ${res.status}: ${txt}`);
+  }
+
+  const audioChunks: Buffer[] = [];
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let lineBuffer = '';
+  let streamFinished = false;
+
+  while (!streamFinished) {
+    // eslint-disable-next-line no-await-in-loop
+    const { done, value } = await reader.read();
+    if (done) {
+      streamFinished = true;
+      break;
+    }
+
+    lineBuffer += decoder.decode(value, { stream: true });
+    const lines = lineBuffer.split('\n');
+    lineBuffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === '[DONE]') continue;
+      try {
+        const evt = JSON.parse(raw) as { output?: { audio?: string; finish_reason?: string } };
+        const b64 = evt?.output?.audio;
+        if (b64) audioChunks.push(Buffer.from(b64, 'base64'));
+      } catch {
+        // skip malformed events
+      }
+    }
+  }
+
+  if (audioChunks.length === 0) {
+    throw new Error('DashScope TTS returned no audio data');
+  }
+
+  return Buffer.concat(audioChunks);
+}
+
+// ─── Qwen dialogue auto-generation ───────────────────────────────────────────
+
+interface QwenChatResponse {
+  output: {
+    choices: { message: { content: string } }[];
+  };
+  usage?: { total_tokens?: number };
+}
+
+/**
+ * Auto-generate a short ad dialogue/voiceover script using Qwen LLM.
+ * Returns plain text — the voiceover lines the avatar should speak.
+ *
+ * @param productName Product the ad is about
+ * @param avatarName  Name of the talent/creator in the ad
+ * @param userPrompt  User's scene description
+ * @param language    ISO language code: "en", "ar", "fr", etc.
+ * @param duration    Video duration in seconds (for pacing)
+ * @param model       Qwen model ID
+ * @param apiKey      DashScope API key
+ */
+export async function dashscopeGenerateDialogue(
+  productName: string,
+  avatarName: string,
+  userPrompt: string,
+  language: string,
+  duration: number,
+  model: string,
+  apiKey: string
+): Promise<string> {
+  const wordLimit = duration <= 3 ? 15 : duration <= 5 ? 25 : 40;
+  const langNames: Record<string, string> = {
+    en: 'English',
+    ar: 'Arabic',
+    fr: 'French',
+    es: 'Spanish',
+    de: 'German',
+    ja: 'Japanese',
+    ko: 'Korean',
+    zh: 'Chinese',
+  };
+  const langName = langNames[language] ?? 'English';
+
+  const systemPrompt =
+    'You are a professional UGC ad scriptwriter. ' +
+    'Write natural, enthusiastic voiceover lines for a short video ad. ' +
+    'Be concise, conversational, and persuasive. ' +
+    'Output ONLY the spoken dialogue — no stage directions, no speaker labels, no quotation marks.';
+
+  const userMessage =
+    `Write a ${duration}-second ad voiceover for "${productName}". ` +
+    `The speaker is ${avatarName || 'an influencer'}. ` +
+    `Scene: ${userPrompt}. ` +
+    `Language: ${langName}. ` +
+    `Keep it under ${wordLimit} words. ` +
+    `Sound natural, excited, and authentic.`;
+
+  const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text-generation/generation`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      input: {
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+      },
+      parameters: { result_format: 'message', max_tokens: 120 },
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`DashScope Qwen error ${res.status}: ${txt}`);
+  }
+
+  const data = (await res.json()) as QwenChatResponse;
+  const dialogue = data?.output?.choices?.[0]?.message?.content?.trim();
+  if (!dialogue) throw new Error(`Qwen returned no dialogue: ${JSON.stringify(data)}`);
+  return dialogue;
+}

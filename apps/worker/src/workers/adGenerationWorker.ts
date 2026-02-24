@@ -3,7 +3,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { redisConnection } from '../lib/redis';
 import { prisma } from '../lib/prisma';
 import { QUEUE_NAMES, CLOUDINARY_FOLDERS } from '@adavatar/utils';
-import { AI_MODELS, AD_GENERATION } from '@adavatar/config';
+import { AI_MODELS, AD_GENERATION, TTS_VOICE_BY_LANGUAGE } from '@adavatar/config';
 
 import { sendAdReadyEmail } from '../lib/email';
 import {
@@ -11,6 +11,8 @@ import {
   dashscopePollVideoTask,
   dashscopeSubmitImageEditTask,
   dashscopePollImageTask,
+  dashscopeTextToSpeech,
+  dashscopeGenerateDialogue,
 } from '../lib/dashscope';
 import { detectProvider, getProviderKey } from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
@@ -67,7 +69,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
     where: { id: adId },
     include: {
       product: { select: { imageUrls: true, name: true } },
-      avatar: { select: { avatarVideoUrl: true, rawUrl: true, inputType: true } },
+      avatar: { select: { avatarVideoUrl: true, rawUrl: true, inputType: true, name: true } },
     },
   });
   if (!ad) throw new Error(`Ad ${adId} not found in database`);
@@ -205,8 +207,9 @@ async function processAdJob(job: Job<{ adId: string }>) {
         // ── Step 1: Generate composite image (avatar holding product) ─────
         const productName = ad.product?.name ?? 'product';
         const compositePrompt =
-          `The person from Image 1 is holding and showcasing the ${productName} from Image 2. ` +
-          `Natural lighting, authentic UGC style, close-up shot, person looking at camera.`;
+          `The person from Image 1 is holding and prominently showcasing the ${productName} from Image 2. ` +
+          `Preserve ALL text, logos, labels, phone numbers, brand names, and fine print on the product packaging exactly as shown in Image 2 — do NOT alter or omit any text. ` +
+          `Natural lighting, authentic UGC creator style, close-up shot, person looking at camera, high detail on product.`;
 
         const sizeStr = `${dimensions.width}*${dimensions.height}`;
         console.log(`[adWorker] Step 1 — generating composite image (${sizeStr})`);
@@ -239,19 +242,100 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       await job.updateProgress(20);
 
+      // ── Step 1.5 (optional): Generate TTS voiceover audio ─────────────────
+      let voiceAudioUrl: string | undefined;
+
+      const dialogueLanguage = (ad.dialogueLanguage ?? 'en').toLowerCase();
+      let dialogueText = ad.dialogueText ?? '';
+
+      if (ad.autoDialogue && !dialogueText) {
+        // Auto-generate dialogue script with Qwen
+        try {
+          console.log(`[adWorker] Generating dialogue script (lang=${dialogueLanguage})...`);
+          dialogueText = await dashscopeGenerateDialogue(
+            ad.product?.name ?? 'this product',
+            ad.avatar?.name ?? 'the creator',
+            ad.rawPrompt,
+            dialogueLanguage,
+            adDuration,
+            AI_MODELS.DASHSCOPE_DIALOGUE_LLM,
+            aliKey
+          );
+          console.log(`[adWorker] Auto-generated dialogue: "${dialogueText}"`);
+        } catch (ttsErr) {
+          console.warn(
+            '[adWorker] Dialogue auto-generation failed (skipping):',
+            (ttsErr as Error).message
+          );
+          dialogueText = '';
+        }
+      }
+
+      if (dialogueText) {
+        try {
+          console.log(`[adWorker] Step 1.5 — generating TTS audio...`);
+          const voice = TTS_VOICE_BY_LANGUAGE[dialogueLanguage] ?? TTS_VOICE_BY_LANGUAGE['en']!;
+          const audioBuffer = await dashscopeTextToSpeech(
+            dialogueText,
+            voice,
+            AI_MODELS.DASHSCOPE_TTS,
+            aliKey
+          );
+
+          // Upload audio to Cloudinary for a permanent, publicly accessible URL
+          const audioUpload = await new Promise<{ secure_url: string }>((resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+              {
+                resource_type: 'video', // Cloudinary uses 'video' type for audio files
+                folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
+                public_id: `${adId}_audio`,
+                format: 'mp3',
+              },
+              (err, result) => {
+                if (err || !result) reject(err ?? new Error('Cloudinary audio upload failed'));
+                else resolve(result);
+              }
+            );
+            uploadStream.end(audioBuffer);
+          });
+
+          voiceAudioUrl = audioUpload.secure_url;
+          console.log(`[adWorker] Step 1.5 complete — audio URL: ${voiceAudioUrl}`);
+
+          // Persist voice audio URL to DB
+          await prisma.ad.update({
+            where: { id: adId },
+            data: { voiceAudioUrl, dialogueText },
+          });
+        } catch (audioErr) {
+          console.warn(
+            '[adWorker] TTS generation failed (continuing without audio):',
+            (audioErr as Error).message
+          );
+        }
+      }
+
+      await job.updateProgress(30);
+
       // ── Step 2: Animate the (composite) image with Wan2.6-I2V ────────────
       console.log(
         `[adWorker] Step 2 — animating image, duration=${adDuration}s, ` +
-          `mode=${hasAvatarPhoto && hasProductImage ? 'composite' : hasAvatarPhoto ? 'avatar-only' : 'product-only'}`
+          `mode=${hasAvatarPhoto && hasProductImage ? 'composite' : hasAvatarPhoto ? 'avatar-only' : 'product-only'}` +
+          (voiceAudioUrl ? ', with audio' : ', silent')
       );
+
+      const videoInput: Record<string, unknown> = {
+        img_url: i2vImageUrl,
+        prompt: enhancedPrompt,
+        negative_prompt: DASHSCOPE_NEGATIVE_PROMPT,
+      };
+      if (voiceAudioUrl) {
+        videoInput.audio_url = voiceAudioUrl;
+      }
 
       const taskId = await dashscopeSubmitVideoTask(
         AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
-        {
-          img_url: i2vImageUrl,
-          prompt: enhancedPrompt,
-          negative_prompt: DASHSCOPE_NEGATIVE_PROMPT,
-        },
+        videoInput,
         { resolution: '720P', duration: adDuration, prompt_extend: true },
         aliKey
       );
@@ -261,7 +345,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       const dashVideoUrl = await dashscopePollVideoTask(
         taskId,
         aliKey,
-        (pct) => job.updateProgress(20 + Math.floor(pct * 0.6)),
+        (pct) => job.updateProgress(30 + Math.floor(pct * 0.5)),
         600_000 // 10 min
       );
 
