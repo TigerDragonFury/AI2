@@ -50,9 +50,8 @@ export const AI_MODELS = {
 
   // Alibaba Cloud DashScope (dashscope-intl.aliyuncs.com) — 90 days free quota for new users
   // https://www.alibabacloud.com/help/en/model-studio/new-free-quota
-  // NOTE: upgrade to wan2.2-i2v-* once confirmed available on intl endpoint
   DASHSCOPE_AVATAR_ANIMATION: 'wan2.1-i2v-turbo', // image → animated video
-  DASHSCOPE_AD_GENERATION_I2V: 'wan2.1-i2v-plus', // higher quality I2V for ads
+  DASHSCOPE_AD_GENERATION_I2V: 'wan2.6-r2v', // reference-to-video (Wan2.6-R2V)
 
   // Legacy aliases (kept for backward compat)
   AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',

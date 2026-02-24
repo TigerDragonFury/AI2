@@ -235,7 +235,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       const taskId = await dashscopeSubmitVideoTask(
         AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
         {
-          img_url: baseImageUrl,
+          ref_img_url: baseImageUrl,
           prompt: enhancedPrompt,
           negative_prompt: DASHSCOPE_NEGATIVE_PROMPT,
         },
