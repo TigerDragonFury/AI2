@@ -46,17 +46,29 @@ function buildCompositeImageUrl(
   if (!avatarId || !productId) return productImageUrl;
 
   // Cloudinary overlay: product as bottom-right inset (~38% width, rounded corners)
+  // Use SDK URL builder so transformation syntax is correct and output gets a .jpg extension
   const productOverlay = productId.replace(/\//g, ':');
   const insetW = Math.round(dimensions.width * 0.38);
   const insetH = Math.round(dimensions.height * 0.28);
 
-  return [
-    `https://res.cloudinary.com/${cloudName}/image/upload`,
-    `c_fill,w_${dimensions.width},h_${dimensions.height},g_face,q_auto`, // avatar fills frame, face-aware
-    `l_${productOverlay},w_${insetW},h_${insetH},c_fill,r_16,g_south_east,x_16,y_16`, // product inset
-    `fl_layer_apply`,
-    avatarId,
-  ].join('/');
+  return cloudinary.url(avatarId, {
+    transformation: [
+      // Base: avatar fills frame, face-aware crop
+      {
+        width: dimensions.width,
+        height: dimensions.height,
+        crop: 'fill',
+        gravity: 'face',
+        quality: 'auto',
+      },
+      // Overlay: product image sized and styled
+      { overlay: productOverlay, width: insetW, height: insetH, crop: 'fill', radius: 16 },
+      // Apply overlay at bottom-right
+      { flags: 'layer_apply', gravity: 'south_east', x: 16, y: 16 },
+    ],
+    format: 'jpg',
+    secure: true,
+  });
 }
 
 async function pollHuggingFaceJob(jobUrl: string, hfToken: string): Promise<ArrayBuffer> {
