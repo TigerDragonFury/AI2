@@ -16,6 +16,49 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+/**
+ * Extract Cloudinary public ID from a hosted URL.
+ * e.g. https://res.cloudinary.com/cloud/image/upload/v1234/raw_uploads/abc.jpg → raw_uploads/abc
+ */
+function extractPublicId(url: string): string {
+  const clean = url.split('?')[0];
+  const match = clean.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[^./]+)?$/);
+  return match ? match[1] : '';
+}
+
+/**
+ * Build a Cloudinary transformation URL that composites the avatar photo (background)
+ * with the product image as a bottom-right inset overlay.
+ * DashScope Wan I2V only takes one image — this lets both avatar face AND product appear.
+ *
+ * Falls back to productImageUrl if either source is not a Cloudinary URL.
+ */
+function buildCompositeImageUrl(
+  avatarRawUrl: string,
+  productImageUrl: string,
+  dimensions: { width: number; height: number }
+): string {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  if (!cloudName) return productImageUrl;
+
+  const avatarId = extractPublicId(avatarRawUrl);
+  const productId = extractPublicId(productImageUrl);
+  if (!avatarId || !productId) return productImageUrl;
+
+  // Cloudinary overlay: product as bottom-right inset (~38% width, rounded corners)
+  const productOverlay = productId.replace(/\//g, ':');
+  const insetW = Math.round(dimensions.width * 0.38);
+  const insetH = Math.round(dimensions.height * 0.28);
+
+  return [
+    `https://res.cloudinary.com/${cloudName}/image/upload`,
+    `c_fill,w_${dimensions.width},h_${dimensions.height},g_face,q_auto`, // avatar fills frame, face-aware
+    `l_${productOverlay},w_${insetW},h_${insetH},c_fill,r_16,g_south_east,x_16,y_16`, // product inset
+    `fl_layer_apply`,
+    avatarId,
+  ].join('/');
+}
+
 async function pollHuggingFaceJob(jobUrl: string, hfToken: string): Promise<ArrayBuffer> {
   for (let attempt = 0; attempt < AD_GENERATION.MAX_POLL_ATTEMPTS; attempt++) {
     const response = await fetch(jobUrl, {
@@ -52,7 +95,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
     where: { id: adId },
     include: {
       product: { select: { imageUrls: true } },
-      avatar: { select: { avatarVideoUrl: true } },
+      avatar: { select: { avatarVideoUrl: true, rawUrl: true, inputType: true } },
     },
   });
   if (!ad) throw new Error(`Ad ${adId} not found in database`);
@@ -63,23 +106,35 @@ async function processAdJob(job: Job<{ adId: string }>) {
   const enhancedPrompt: string = ad.enhancedPrompt ?? ad.rawPrompt;
   const adDuration: number = ad.duration ?? 5;
 
+  // AspectRatio Prisma enum values → pixel dimensions
+  const aspectRatioMap: Record<string, { width: number; height: number }> = {
+    RATIO_9_16: { width: 720, height: 1280 },
+    RATIO_16_9: { width: 1280, height: 720 },
+    RATIO_1_1: { width: 720, height: 720 },
+    '9:16': { width: 720, height: 1280 },
+    '16:9': { width: 1280, height: 720 },
+    '1:1': { width: 720, height: 720 },
+  };
+  const dimensions = aspectRatioMap[ad.aspectRatio as string] ?? { width: 720, height: 1280 };
+
+  // Build the base image for I2V:
+  // If avatar was uploaded as a photo, composite avatar face + product inset so both appear in the video.
+  // If avatar was uploaded as a video (no static photo usable), fall back to product-only.
+  const avatarRawUrl = ad.avatar?.rawUrl ?? '';
+  const avatarInputType = ad.avatar?.inputType ?? 'video';
+  const baseImageUrl =
+    avatarInputType === 'image' && avatarRawUrl && productImageUrls[0]
+      ? buildCompositeImageUrl(avatarRawUrl, productImageUrls[0], dimensions)
+      : (productImageUrls[0] ?? '');
+  console.log(
+    `[adWorker] Base image mode: ${avatarInputType === 'image' ? 'composite (avatar+product)' : 'product-only'}`
+  );
+
   try {
     await job.updateProgress(10);
 
     const provider = await detectProvider();
     console.log(`[adWorker] Using AI provider: ${provider}`);
-
-    // AspectRatio Prisma enum values → pixel dimensions
-    const aspectRatioMap: Record<string, { width: number; height: number }> = {
-      RATIO_9_16: { width: 720, height: 1280 },
-      RATIO_16_9: { width: 1280, height: 720 },
-      RATIO_1_1: { width: 720, height: 720 },
-      // Also handle legacy string keys just in case
-      '9:16': { width: 720, height: 1280 },
-      '16:9': { width: 1280, height: 720 },
-      '1:1': { width: 720, height: 720 },
-    };
-    const dimensions = aspectRatioMap[ad.aspectRatio as string] ?? { width: 720, height: 1280 };
 
     let generatedVideoUrl: string;
 
@@ -100,7 +155,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
         method: 'POST',
         headers: falHeaders,
         body: JSON.stringify({
-          image_url: productImageUrls[0],
+          image_url: baseImageUrl,
           prompt: enhancedPrompt,
           num_seconds: adDuration,
           ...dimensions,
@@ -168,7 +223,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       const taskId = await dashscopeSubmitVideoTask(
         AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
         {
-          img_url: productImageUrls[0],
+          img_url: baseImageUrl,
           prompt: enhancedPrompt,
           negative_prompt: DASHSCOPE_NEGATIVE_PROMPT,
         },
@@ -176,11 +231,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
         aliKey
       );
 
-      // Note: DashScope Wan I2V only accepts a single image input (img_url).
-      // The avatar video (avatarVideoUrl) cannot be passed as a second input — this is an API limitation.
-      // The avatar name IS included in the enhanced prompt text for context.
       console.log(
-        `[adWorker] DashScope: product image=${productImageUrls[0]}, duration=${adDuration}s, avatar(text-only)=${avatarVideoUrl ? 'included in prompt' : 'none'}`
+        `[adWorker] DashScope: img=${avatarInputType === 'image' ? 'composite(avatar+product)' : 'product-only'}, duration=${adDuration}s`
       );
       console.log(`[adWorker] DashScope task submitted: ${taskId}`);
 
@@ -207,7 +259,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       const payload = {
         inputs: {
           video: avatarVideoUrl,
-          image: productImageUrls[0],
+          image: baseImageUrl,
           prompt: enhancedPrompt,
           ...dimensions,
           num_frames: Math.round(adDuration * 16), // ~16fps: 5s=80, 10s=160
