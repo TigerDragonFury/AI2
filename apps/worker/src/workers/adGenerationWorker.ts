@@ -318,6 +318,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       await job.updateProgress(30);
 
       // ── Step 2: Animate the (composite) image with Wan2.6-I2V ────────────
+      // wan2.6-i2v supports 2–15 seconds (integer values).
       console.log(
         `[adWorker] Step 2 — animating image, duration=${adDuration}s, ` +
           `mode=${hasAvatarPhoto && hasProductImage ? 'composite' : hasAvatarPhoto ? 'avatar-only' : 'product-only'}` +

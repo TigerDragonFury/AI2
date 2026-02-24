@@ -50,11 +50,8 @@ const generateAdSchema = z.object({
   productId: z.string().cuid(),
   rawPrompt: z.string().min(10).max(1000),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']),
-  // DashScope Wan I2V only supports 3s or 5s — other values are silently ignored by the API
-  duration: z
-    .union([z.literal(3), z.literal(5)])
-    .optional()
-    .default(5),
+  // wan2.6-i2v supports 2–15 seconds (integer values). We expose 5 / 10 / 15.
+  duration: z.number().int().min(2).max(15).optional().default(5),
   // Dialogue / voiceover
   dialogueText: z.string().max(500).optional(),
   autoDialogue: z.boolean().optional().default(false),

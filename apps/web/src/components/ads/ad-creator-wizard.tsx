@@ -241,8 +241,9 @@ const ASPECT_RATIOS: { value: AspectRatio; label: string; description: string }[
 ];
 
 const DURATIONS = [
-  { value: 3, label: '3s', note: 'Faster generation' },
-  { value: 5, label: '5s', note: 'Recommended' },
+  { value: 5, label: '5s', note: 'Standard' },
+  { value: 10, label: '10s', note: 'Recommended' },
+  { value: 15, label: '15s', note: 'Long-form' },
 ];
 
 function PromptStep({
@@ -325,9 +326,7 @@ function PromptStep({
             </button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">
-          DashScope Wan I2V supports 3s and 5s durations.
-        </p>
+        <p className="text-xs text-muted-foreground">wan2.6-i2v supports 5–15 seconds.</p>
       </div>
     </div>
   );
@@ -448,7 +447,7 @@ export function AdCreatorWizard() {
   const [productId, setProductId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
-  const [duration, setDuration] = useState(5);
+  const [duration, setDuration] = useState(10);
   const [autoDialogue, setAutoDialogue] = useState(true);
   const [dialogueText, setDialogueText] = useState('');
   const [dialogueLanguage, setDialogueLanguage] = useState('en');
