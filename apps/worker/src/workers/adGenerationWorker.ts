@@ -8,6 +8,7 @@ import { AI_MODELS, AD_GENERATION } from '@adavatar/config';
 import { sendAdReadyEmail } from '../lib/email';
 import { dashscopeSubmitVideoTask, dashscopePollVideoTask } from '../lib/dashscope';
 import { detectProvider, getProviderKey } from '../lib/settings';
+import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -169,6 +170,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
         {
           img_url: productImageUrls[0],
           prompt: enhancedPrompt,
+          negative_prompt: DASHSCOPE_NEGATIVE_PROMPT,
         },
         { size: `${dimensions.width}*${dimensions.height}`, duration: adDuration },
         aliKey

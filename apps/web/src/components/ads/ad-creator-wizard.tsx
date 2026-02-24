@@ -236,7 +236,10 @@ const ASPECT_RATIOS: { value: AspectRatio; label: string; description: string }[
   { value: '1:1', label: '1:1', description: 'Square (Feed)' },
 ];
 
-const DURATIONS = [5, 6, 7, 8, 9, 10];
+const DURATIONS = [
+  { value: 3, label: '3s', note: 'Faster generation' },
+  { value: 5, label: '5s', note: 'Recommended' },
+];
 
 function PromptStep({
   prompt,
@@ -300,24 +303,27 @@ function PromptStep({
         <label className="block text-sm font-medium">
           Video Duration: <span className="font-semibold text-primary">{duration}s</span>
         </label>
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           {DURATIONS.map((d) => (
             <button
-              key={d}
+              key={d.value}
               type="button"
-              onClick={() => onDurationChange(d)}
+              onClick={() => onDurationChange(d.value)}
               className={[
-                'flex-1 rounded-lg border-2 py-2 text-sm font-medium transition-all',
-                duration === d
+                'flex flex-1 flex-col items-center gap-0.5 rounded-lg border-2 py-2.5 text-sm font-medium transition-all',
+                duration === d.value
                   ? 'border-primary bg-primary/5 text-primary'
                   : 'border-border hover:border-primary/40',
               ].join(' ')}
             >
-              {d}s
+              <span>{d.label}</span>
+              <span className="text-xs font-normal text-muted-foreground">{d.note}</span>
             </button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">Longer videos take more time to generate.</p>
+        <p className="text-xs text-muted-foreground">
+          DashScope Wan I2V supports 3s and 5s durations.
+        </p>
       </div>
     </div>
   );

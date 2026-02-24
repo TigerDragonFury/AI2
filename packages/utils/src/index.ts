@@ -16,24 +16,37 @@ export function isApiError<T>(result: ApiResult<T>): result is ApiError {
 
 // ─── Prompt Enhancement ───────────────────────────────────────────────────────
 
-export function enhanceAdPrompt(rawPrompt: string, aspectRatio: string): string {
+export function enhanceAdPrompt(
+  rawPrompt: string,
+  aspectRatio: string,
+  options?: { avatarName?: string; duration?: number }
+): string {
   const ratioContext: Record<string, string> = {
-    '9:16': 'vertical short-form video, full-screen portrait orientation',
-    '16:9': 'landscape widescreen video, cinematic horizontal framing',
-    '1:1': 'square format feed video, centered composition',
+    '9:16': 'vertical portrait format',
+    '16:9': 'landscape widescreen format',
+    '1:1': 'square format',
   };
 
-  const qualitySuffix = [
-    'Ultra high definition, 4K quality.',
-    'Cinematic lighting, photorealistic.',
-    'Smooth motion, professional production value.',
-    `Optimised for ${ratioContext[aspectRatio] ?? aspectRatio}.`,
-    'Engaging and natural product interaction.',
-    'Clear product visibility throughout.',
-  ].join(' ');
+  // Keep suffix minimal — over-specifying motion/interaction causes hallucinations
+  // in I2V models (phantom hands, morphing objects, extra limbs, etc.)
+  const parts = [
+    rawPrompt.trim(),
+    options?.avatarName ? `Featured by ${options.avatarName}.` : '',
+    'Product stays true to original image.',
+    'Photorealistic, stable motion, no distortion.',
+    `${ratioContext[aspectRatio] ?? aspectRatio}.`,
+  ];
 
-  return `${rawPrompt.trim()} ${qualitySuffix}`;
+  return parts.filter(Boolean).join(' ');
 }
+
+/**
+ * Standard negative prompt for DashScope I2V — suppresses common hallucinations.
+ */
+export const DASHSCOPE_NEGATIVE_PROMPT =
+  'blurry, distorted, extra hands, extra limbs, morphing, dissolving, ' +
+  'low quality, pixelated, watermark, text overlay, multiple products, ' +
+  'object duplication, unrealistic motion, artifacts';
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 

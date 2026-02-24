@@ -50,6 +50,11 @@ const generateAdSchema = z.object({
   productId: z.string().cuid(),
   rawPrompt: z.string().min(10).max(1000),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']),
+  // DashScope Wan I2V only supports 3s or 5s — other values are silently ignored by the API
+  duration: z
+    .union([z.literal(3), z.literal(5)])
+    .optional()
+    .default(5),
 });
 
 // POST /api/ads/generate
@@ -75,7 +80,10 @@ adsRouter.post(
       });
       if (!product) return next(createError('Product not found', 404, 'NOT_FOUND'));
 
-      const enhancedPrompt = enhanceAdPrompt(body.rawPrompt, body.aspectRatio);
+      const enhancedPrompt = enhanceAdPrompt(body.rawPrompt, body.aspectRatio, {
+        avatarName: avatar.name,
+        duration: body.duration,
+      });
 
       const aspectRatioMap: Record<string, 'RATIO_9_16' | 'RATIO_16_9' | 'RATIO_1_1'> = {
         '9:16': 'RATIO_9_16',
@@ -91,6 +99,7 @@ adsRouter.post(
           rawPrompt: body.rawPrompt,
           enhancedPrompt,
           aspectRatio: aspectRatioMap[body.aspectRatio],
+          duration: body.duration,
           status: 'pending',
         },
       });
@@ -128,7 +137,15 @@ adsRouter.patch(
         RATIO_1_1: '1:1',
       };
 
-      const enhancedPrompt = enhanceAdPrompt(rawPrompt, aspectRatioReverseMap[ad.aspectRatio]);
+      const adWithAvatar = await prisma.ad.findFirst({
+        where: { id: ad.id },
+        include: { avatar: { select: { name: true } } },
+      });
+
+      const enhancedPrompt = enhanceAdPrompt(rawPrompt, aspectRatioReverseMap[ad.aspectRatio], {
+        avatarName: adWithAvatar?.avatar?.name,
+        duration: ad.duration,
+      });
 
       const updated = await prisma.ad.update({
         where: { id: ad.id },
