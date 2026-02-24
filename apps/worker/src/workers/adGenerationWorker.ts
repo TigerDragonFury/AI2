@@ -21,6 +21,16 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+/**
+ * For Cloudinary-hosted images, insert a `c_limit,w_{max},h_{max}` transformation
+ * so the image is downscaled before being sent to DashScope (which requires ≤ 5000px/side).
+ * Non-Cloudinary URLs are returned unchanged.
+ */
+function capCloudinaryDimensions(url: string, max: number): string {
+  if (!url.includes('res.cloudinary.com') || !url.includes('/upload/')) return url;
+  return url.replace('/upload/', `/upload/c_limit,w_${max},h_${max}/`);
+}
+
 async function pollHuggingFaceJob(jobUrl: string, hfToken: string): Promise<ArrayBuffer> {
   for (let attempt = 0; attempt < AD_GENERATION.MAX_POLL_ATTEMPTS; attempt++) {
     const response = await fetch(jobUrl, {
@@ -201,9 +211,14 @@ async function processAdJob(job: Job<{ adId: string }>) {
         const sizeStr = `${dimensions.width}*${dimensions.height}`;
         console.log(`[adWorker] Step 1 — generating composite image (${sizeStr})`);
 
+        // DashScope requires input image dimensions ≤ 5000px per side.
+        // Resize Cloudinary-hosted images in-URL to 4000px max before sending.
+        const safeAvatarUrl = capCloudinaryDimensions(avatarRawUrl, 4000);
+        const safeProductUrl = capCloudinaryDimensions(productImageUrl, 4000);
+
         const imgTaskId = await dashscopeSubmitImageEditTask(
           AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
-          [avatarRawUrl, productImageUrl],
+          [safeAvatarUrl, safeProductUrl],
           compositePrompt,
           sizeStr,
           aliKey
