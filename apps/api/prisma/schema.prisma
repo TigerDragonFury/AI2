@@ -182,6 +182,7 @@ model Ad {
   rawPrompt         String      @db.Text
   enhancedPrompt    String?     @db.Text
   aspectRatio       AspectRatio
+  duration          Int         @default(5)
   generatedVideoUrl String?
   status            AdStatus    @default(pending)
   errorMessage      String?
