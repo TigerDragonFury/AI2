@@ -19,7 +19,7 @@ export function isApiError<T>(result: ApiResult<T>): result is ApiError {
 export function enhanceAdPrompt(
   rawPrompt: string,
   aspectRatio: string,
-  options?: { avatarName?: string; duration?: number }
+  options?: { avatarName?: string; productName?: string; duration?: number }
 ): string {
   const ratioContext: Record<string, string> = {
     '9:16': 'vertical portrait format',
@@ -32,7 +32,7 @@ export function enhanceAdPrompt(
   const parts = [
     rawPrompt.trim(),
     options?.avatarName ? `Featured by ${options.avatarName}.` : '',
-    'Product stays true to original image.',
+    options?.productName ? `Product: ${options.productName}.` : '',
     'Photorealistic, stable motion, no distortion.',
     `${ratioContext[aspectRatio] ?? aspectRatio}.`,
   ];

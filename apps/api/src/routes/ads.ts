@@ -82,6 +82,7 @@ adsRouter.post(
 
       const enhancedPrompt = enhanceAdPrompt(body.rawPrompt, body.aspectRatio, {
         avatarName: avatar.name,
+        productName: product.name,
         duration: body.duration,
       });
 
@@ -137,13 +138,14 @@ adsRouter.patch(
         RATIO_1_1: '1:1',
       };
 
-      const adWithAvatar = await prisma.ad.findFirst({
+      const adWithRelations = await prisma.ad.findFirst({
         where: { id: ad.id },
-        include: { avatar: { select: { name: true } } },
+        include: { avatar: { select: { name: true } }, product: { select: { name: true } } },
       });
 
       const enhancedPrompt = enhanceAdPrompt(rawPrompt, aspectRatioReverseMap[ad.aspectRatio], {
-        avatarName: adWithAvatar?.avatar?.name,
+        avatarName: adWithRelations?.avatar?.name,
+        productName: adWithRelations?.product?.name,
         duration: ad.duration,
       });
 

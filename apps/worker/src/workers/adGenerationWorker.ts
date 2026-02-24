@@ -16,61 +16,6 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-/**
- * Extract Cloudinary public ID from a hosted URL.
- * e.g. https://res.cloudinary.com/cloud/image/upload/v1234/raw_uploads/abc.jpg → raw_uploads/abc
- */
-function extractPublicId(url: string): string {
-  const clean = url.split('?')[0];
-  const match = clean.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[^./]+)?$/);
-  return match ? match[1] : '';
-}
-
-/**
- * Build a Cloudinary transformation URL that composites the avatar photo (background)
- * with the product image as a bottom-right inset overlay.
- * DashScope Wan I2V only takes one image — this lets both avatar face AND product appear.
- *
- * Falls back to productImageUrl if either source is not a Cloudinary URL.
- */
-function buildCompositeImageUrl(
-  avatarRawUrl: string,
-  productImageUrl: string,
-  dimensions: { width: number; height: number }
-): string {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  if (!cloudName) return productImageUrl;
-
-  const avatarId = extractPublicId(avatarRawUrl);
-  const productId = extractPublicId(productImageUrl);
-  if (!avatarId || !productId) return productImageUrl;
-
-  // Cloudinary overlay: product as bottom-right inset (~38% width, rounded corners)
-  // Use SDK URL builder so transformation syntax is correct and output gets a .jpg extension
-  const productOverlay = productId.replace(/\//g, ':');
-  const insetW = Math.round(dimensions.width * 0.38);
-  const insetH = Math.round(dimensions.height * 0.28);
-
-  return cloudinary.url(avatarId, {
-    transformation: [
-      // Base: avatar fills frame, face-aware crop
-      {
-        width: dimensions.width,
-        height: dimensions.height,
-        crop: 'fill',
-        gravity: 'face',
-        quality: 'auto',
-      },
-      // Overlay: product image sized and styled
-      { overlay: productOverlay, width: insetW, height: insetH, crop: 'fill', radius: 16 },
-      // Apply overlay at bottom-right
-      { flags: 'layer_apply', gravity: 'south_east', x: 16, y: 16 },
-    ],
-    format: 'jpg',
-    secure: true,
-  });
-}
-
 async function pollHuggingFaceJob(jobUrl: string, hfToken: string): Promise<ArrayBuffer> {
   for (let attempt = 0; attempt < AD_GENERATION.MAX_POLL_ATTEMPTS; attempt++) {
     const response = await fetch(jobUrl, {
@@ -106,7 +51,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
   const ad = await prisma.ad.findUnique({
     where: { id: adId },
     include: {
-      product: { select: { imageUrls: true } },
+      product: { select: { imageUrls: true, name: true } },
       avatar: { select: { avatarVideoUrl: true, rawUrl: true, inputType: true } },
     },
   });
@@ -129,17 +74,16 @@ async function processAdJob(job: Job<{ adId: string }>) {
   };
   const dimensions = aspectRatioMap[ad.aspectRatio as string] ?? { width: 720, height: 1280 };
 
-  // Build the base image for I2V:
-  // If avatar was uploaded as a photo, composite avatar face + product inset so both appear in the video.
-  // If avatar was uploaded as a video (no static photo usable), fall back to product-only.
+  // Build the base image for I2V (Wan2.6 "Starring Roles" approach):
+  // Use the avatar's raw photo as the character reference — the model preserves the person's
+  // likeness throughout the video. The product is described in the prompt.
+  // Fall back to product image when no avatar photo exists.
   const avatarRawUrl = ad.avatar?.rawUrl ?? '';
   const avatarInputType = ad.avatar?.inputType ?? 'video';
   const baseImageUrl =
-    avatarInputType === 'image' && avatarRawUrl && productImageUrls[0]
-      ? buildCompositeImageUrl(avatarRawUrl, productImageUrls[0], dimensions)
-      : (productImageUrls[0] ?? '');
+    avatarInputType === 'image' && avatarRawUrl ? avatarRawUrl : (productImageUrls[0] ?? '');
   console.log(
-    `[adWorker] Base image mode: ${avatarInputType === 'image' ? 'composite (avatar+product)' : 'product-only'}`
+    `[adWorker] Base image mode: ${avatarInputType === 'image' ? 'avatar-as-character-reference' : 'product-only'}`
   );
 
   try {
@@ -232,9 +176,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       await job.updateProgress(15);
 
-      // Wan2.6-I2V uses resolution string (e.g. "720P") and aspect ratio is inferred from the image
-      const dashResolution =
-        dimensions.width === 1280 || dimensions.height === 1280 ? '720P' : '720P';
+      // Wan2.6-I2V uses a resolution string; aspect ratio is inferred from the submitted image
       const taskId = await dashscopeSubmitVideoTask(
         AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
         {
@@ -242,12 +184,12 @@ async function processAdJob(job: Job<{ adId: string }>) {
           prompt: enhancedPrompt,
           negative_prompt: DASHSCOPE_NEGATIVE_PROMPT,
         },
-        { resolution: dashResolution, duration: adDuration, prompt_extend: true },
+        { resolution: '720P', duration: adDuration, prompt_extend: true },
         aliKey
       );
 
       console.log(
-        `[adWorker] DashScope: img=${avatarInputType === 'image' ? 'composite(avatar+product)' : 'product-only'}, duration=${adDuration}s`
+        `[adWorker] DashScope: img=${avatarInputType === 'image' ? 'avatar-photo' : 'product-only'}, duration=${adDuration}s`
       );
       console.log(`[adWorker] DashScope task submitted: ${taskId}`);
 
