@@ -6,7 +6,12 @@ import { QUEUE_NAMES, CLOUDINARY_FOLDERS } from '@adavatar/utils';
 import { AI_MODELS, AD_GENERATION } from '@adavatar/config';
 
 import { sendAdReadyEmail } from '../lib/email';
-import { dashscopeSubmitVideoTask, dashscopePollVideoTask } from '../lib/dashscope';
+import {
+  dashscopeSubmitVideoTask,
+  dashscopePollVideoTask,
+  dashscopeSubmitImageEditTask,
+  dashscopePollImageTask,
+} from '../lib/dashscope';
 import { detectProvider, getProviderKey } from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
 
@@ -170,17 +175,65 @@ async function processAdJob(job: Job<{ adId: string }>) {
       });
       generatedVideoUrl = uploadResult.secure_url;
     } else if (provider === 'dashscope') {
-      // ── Alibaba Cloud DashScope (Wan I2V) — 90 days free for new users ────
+      // ── Alibaba Cloud DashScope — two-step pipeline ───────────────────────
+      // Step 1 (optional): wan2.5-i2i-preview fuses avatar photo + product image
+      //                    into a single composite image.
+      // Step 2:            wan2.6-i2v animates that composite (or falls back to
+      //                    avatar-only when no product image is available).
       const aliKey = await getProviderKey('dashscope');
       if (!aliKey) throw new Error('ALIBABA_API_KEY not configured');
 
-      await job.updateProgress(15);
+      await job.updateProgress(10);
 
-      // Wan2.6-I2V uses a resolution string; aspect ratio is inferred from the submitted image
+      const productImageUrl = productImageUrls[0] ?? '';
+      const hasAvatarPhoto = avatarInputType === 'image' && !!avatarRawUrl;
+      const hasProductImage = !!productImageUrl;
+
+      let i2vImageUrl = baseImageUrl; // default: avatar photo (or product fallback)
+
+      if (hasAvatarPhoto && hasProductImage) {
+        // ── Step 1: Generate composite image (avatar holding product) ─────
+        const productName = ad.product?.name ?? 'product';
+        const compositePrompt =
+          `The person from Image 1 is holding and showcasing the ${productName} from Image 2. ` +
+          `Natural lighting, authentic UGC style, close-up shot, person looking at camera.`;
+
+        const sizeStr = `${dimensions.width}*${dimensions.height}`;
+        console.log(`[adWorker] Step 1 — generating composite image (${sizeStr})`);
+
+        const imgTaskId = await dashscopeSubmitImageEditTask(
+          AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
+          [avatarRawUrl, productImageUrl],
+          compositePrompt,
+          sizeStr,
+          aliKey
+        );
+
+        console.log(`[adWorker] Image edit task submitted: ${imgTaskId}`);
+        await job.updateProgress(15);
+
+        i2vImageUrl = await dashscopePollImageTask(imgTaskId, aliKey, 180_000);
+        console.log(`[adWorker] Step 1 complete — composite image: ${i2vImageUrl}`);
+      } else {
+        console.log(
+          `[adWorker] Skipping Step 1 — ` +
+            `hasAvatarPhoto=${hasAvatarPhoto}, hasProductImage=${hasProductImage}. ` +
+            `Using single-image mode.`
+        );
+      }
+
+      await job.updateProgress(20);
+
+      // ── Step 2: Animate the (composite) image with Wan2.6-I2V ────────────
+      console.log(
+        `[adWorker] Step 2 — animating image, duration=${adDuration}s, ` +
+          `mode=${hasAvatarPhoto && hasProductImage ? 'composite' : hasAvatarPhoto ? 'avatar-only' : 'product-only'}`
+      );
+
       const taskId = await dashscopeSubmitVideoTask(
         AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
         {
-          img_url: baseImageUrl,
+          img_url: i2vImageUrl,
           prompt: enhancedPrompt,
           negative_prompt: DASHSCOPE_NEGATIVE_PROMPT,
         },
@@ -188,15 +241,12 @@ async function processAdJob(job: Job<{ adId: string }>) {
         aliKey
       );
 
-      console.log(
-        `[adWorker] DashScope: img=${avatarInputType === 'image' ? 'avatar-photo' : 'product-only'}, duration=${adDuration}s`
-      );
-      console.log(`[adWorker] DashScope task submitted: ${taskId}`);
+      console.log(`[adWorker] Video task submitted: ${taskId}`);
 
       const dashVideoUrl = await dashscopePollVideoTask(
         taskId,
         aliKey,
-        (pct) => job.updateProgress(15 + Math.floor(pct * 0.65)),
+        (pct) => job.updateProgress(20 + Math.floor(pct * 0.6)),
         600_000 // 10 min
       );
 

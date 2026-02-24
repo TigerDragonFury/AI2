@@ -52,6 +52,7 @@ export const AI_MODELS = {
   // https://www.alibabacloud.com/help/en/model-studio/new-free-quota
   DASHSCOPE_AVATAR_ANIMATION: 'wan2.1-i2v-turbo', // image → animated video
   DASHSCOPE_AD_GENERATION_I2V: 'wan2.6-i2v', // Wan2.6 image-to-video
+  DASHSCOPE_AD_IMAGE_EDIT: 'wan2.5-i2i-preview', // Step 1: multi-image fusion (avatar + product → composite)
 
   // Legacy aliases (kept for backward compat)
   AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',
