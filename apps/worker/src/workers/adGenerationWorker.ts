@@ -232,14 +232,17 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       await job.updateProgress(15);
 
+      // Wan2.6-I2V uses resolution string (e.g. "720P") and aspect ratio is inferred from the image
+      const dashResolution =
+        dimensions.width === 1280 || dimensions.height === 1280 ? '720P' : '720P';
       const taskId = await dashscopeSubmitVideoTask(
         AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
         {
-          ref_img_url: baseImageUrl,
+          img_url: baseImageUrl,
           prompt: enhancedPrompt,
           negative_prompt: DASHSCOPE_NEGATIVE_PROMPT,
         },
-        { size: `${dimensions.width}*${dimensions.height}`, duration: adDuration },
+        { resolution: dashResolution, duration: adDuration, prompt_extend: true },
         aliKey
       );
 
