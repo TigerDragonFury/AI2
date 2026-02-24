@@ -25,13 +25,28 @@ cloudinary.config({
 });
 
 /**
- * For Cloudinary-hosted images, insert a `c_limit,w_{max},h_{max}` transformation
- * so the image is downscaled before being sent to DashScope (which requires ≤ 5000px/side).
+ * For Cloudinary-hosted images, chain two URL transformations so that
+ *   (a) any dimension below `min` is scaled UP proportionally, then
+ *   (b) any dimension above `max` is scaled DOWN.
+ *
+ * DashScope wan2.5-i2i-preview and wan2.6-i2v both require each side to be
+ * in the range [384, 5000].  Pass min=384, max=4000 for all DashScope calls.
  * Non-Cloudinary URLs are returned unchanged.
  */
-function capCloudinaryDimensions(url: string, max: number): string {
+function fitCloudinaryDimensions(url: string, min: number, max: number): string {
   if (!url.includes('res.cloudinary.com') || !url.includes('/upload/')) return url;
-  return url.replace('/upload/', `/upload/c_limit,w_${max},h_${max}/`);
+  // Cloudinary conditional transforms: scale up if either side is below `min`,
+  // then cap both sides to `max`.  Steps are separated by '/'.
+  const transforms = [
+    `if_h_lt_${min}`, // --- if height < min
+    `c_scale,h_${min}`, //     scale so height == min (width follows AR)
+    'if_end', // --- end if
+    `if_w_lt_${min}`, // --- if width < min (re-check after h-scale)
+    `c_scale,w_${min}`, //     scale so width == min
+    'if_end', // --- end if
+    `c_limit,w_${max},h_${max}`, // cap the maximum
+  ].join('/');
+  return url.replace('/upload/', `/upload/${transforms}/`);
 }
 
 async function pollHuggingFaceJob(jobUrl: string, hfToken: string): Promise<ArrayBuffer> {
@@ -99,7 +114,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       try {
         console.log('[adWorker] Auto-prompt: analysing product image with Qwen VL...');
         const sceneDescription = await dashscopeAnalyzeProductImage(
-          capCloudinaryDimensions(productImageUrls[0], 2000),
+          fitCloudinaryDimensions(productImageUrls[0], 384, 2000),
           ad.product?.name ?? 'this product',
           ad.avatar?.name ?? 'the creator',
           adDuration,
@@ -271,10 +286,11 @@ async function processAdJob(job: Job<{ adId: string }>) {
         const sizeStr = `${dimensions.width}*${dimensions.height}`;
         console.log(`[adWorker] Step 1 — generating composite image (${sizeStr})`);
 
-        // DashScope requires input image dimensions ≤ 5000px per side.
-        // Resize Cloudinary-hosted images in-URL to 4000px max before sending.
-        const safeAvatarUrl = capCloudinaryDimensions(avatarRawUrl, 4000);
-        const safeProductUrl = capCloudinaryDimensions(productImageUrl, 4000);
+        // DashScope requires input image dimensions in [384, 5000] on each side.
+        // fitCloudinaryDimensions scales up images that are too small AND
+        // scales down images that are too large.
+        const safeAvatarUrl = fitCloudinaryDimensions(avatarRawUrl, 384, 4000);
+        const safeProductUrl = fitCloudinaryDimensions(productImageUrl, 384, 4000);
 
         const imgTaskId = await dashscopeSubmitImageEditTask(
           AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
