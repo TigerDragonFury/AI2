@@ -60,6 +60,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
   const productImageUrls: string[] = ad.product?.imageUrls ?? [];
   const avatarVideoUrl: string = ad.avatar?.avatarVideoUrl ?? '';
   const enhancedPrompt: string = ad.enhancedPrompt ?? ad.rawPrompt;
+  const adDuration: number = ad.duration ?? 5;
 
   try {
     await job.updateProgress(10);
@@ -100,6 +101,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
         body: JSON.stringify({
           image_url: productImageUrls[0],
           prompt: enhancedPrompt,
+          num_seconds: adDuration,
           ...dimensions,
         }),
       });
@@ -168,10 +170,16 @@ async function processAdJob(job: Job<{ adId: string }>) {
           img_url: productImageUrls[0],
           prompt: enhancedPrompt,
         },
-        { size: `${dimensions.width}*${dimensions.height}`, duration: 5 },
+        { size: `${dimensions.width}*${dimensions.height}`, duration: adDuration },
         aliKey
       );
 
+      // Note: DashScope Wan I2V only accepts a single image input (img_url).
+      // The avatar video (avatarVideoUrl) cannot be passed as a second input — this is an API limitation.
+      // The avatar name IS included in the enhanced prompt text for context.
+      console.log(
+        `[adWorker] DashScope: product image=${productImageUrls[0]}, duration=${adDuration}s, avatar(text-only)=${avatarVideoUrl ? 'included in prompt' : 'none'}`
+      );
       console.log(`[adWorker] DashScope task submitted: ${taskId}`);
 
       const dashVideoUrl = await dashscopePollVideoTask(
@@ -200,7 +208,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
           image: productImageUrls[0],
           prompt: enhancedPrompt,
           ...dimensions,
-          num_frames: 81,
+          num_frames: Math.round(adDuration * 16), // ~16fps: 5s=80, 10s=160
         },
       };
 

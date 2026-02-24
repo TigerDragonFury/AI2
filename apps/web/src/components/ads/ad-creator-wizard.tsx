@@ -228,7 +228,7 @@ function ProductPicker({
   );
 }
 
-// ─── Step 3: Prompt & aspect ratio ────────────────────────────────────────────
+// ─── Step 3: Prompt, aspect ratio & duration ─────────────────────────────────
 
 const ASPECT_RATIOS: { value: AspectRatio; label: string; description: string }[] = [
   { value: '9:16', label: '9:16', description: 'Portrait (TikTok, Reels)' },
@@ -236,16 +236,22 @@ const ASPECT_RATIOS: { value: AspectRatio; label: string; description: string }[
   { value: '1:1', label: '1:1', description: 'Square (Feed)' },
 ];
 
+const DURATIONS = [5, 6, 7, 8, 9, 10];
+
 function PromptStep({
   prompt,
   aspectRatio,
+  duration,
   onPromptChange,
   onAspectChange,
+  onDurationChange,
 }: {
   prompt: string;
   aspectRatio: AspectRatio;
+  duration: number;
   onPromptChange: (v: string) => void;
   onAspectChange: (v: AspectRatio) => void;
+  onDurationChange: (v: number) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -288,6 +294,31 @@ function PromptStep({
           ))}
         </div>
       </div>
+
+      {/* Duration */}
+      <div className="space-y-2">
+        <label className="block text-sm font-medium">
+          Video Duration: <span className="font-semibold text-primary">{duration}s</span>
+        </label>
+        <div className="flex gap-2">
+          {DURATIONS.map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => onDurationChange(d)}
+              className={[
+                'flex-1 rounded-lg border-2 py-2 text-sm font-medium transition-all',
+                duration === d
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-border hover:border-primary/40',
+              ].join(' ')}
+            >
+              {d}s
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Longer videos take more time to generate.</p>
+      </div>
     </div>
   );
 }
@@ -302,6 +333,7 @@ export function AdCreatorWizard() {
   const [productId, setProductId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
+  const [duration, setDuration] = useState(5);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -318,7 +350,7 @@ export function AdCreatorWizard() {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ads/generate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatarId, productId, rawPrompt: prompt, aspectRatio }),
+        body: JSON.stringify({ avatarId, productId, rawPrompt: prompt, aspectRatio, duration }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -348,8 +380,10 @@ export function AdCreatorWizard() {
           <PromptStep
             prompt={prompt}
             aspectRatio={aspectRatio}
+            duration={duration}
             onPromptChange={setPrompt}
             onAspectChange={setAspectRatio}
+            onDurationChange={setDuration}
           />
         )}
       </div>
