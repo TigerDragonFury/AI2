@@ -2,7 +2,7 @@ import { Worker, type Job } from 'bullmq';
 import { v2 as cloudinary } from 'cloudinary';
 import { redisConnection } from '../lib/redis';
 import { prisma } from '../lib/prisma';
-import { QUEUE_NAMES, CLOUDINARY_FOLDERS } from '@adavatar/utils';
+import { QUEUE_NAMES, CLOUDINARY_FOLDERS, enhanceAdPrompt } from '@adavatar/utils';
 import { AI_MODELS, AD_GENERATION, TTS_VOICE_BY_LANGUAGE } from '@adavatar/config';
 
 import { sendAdReadyEmail } from '../lib/email';
@@ -13,6 +13,7 @@ import {
   dashscopePollImageTask,
   dashscopeTextToSpeech,
   dashscopeGenerateDialogue,
+  dashscopeAnalyzeProductImage,
 } from '../lib/dashscope';
 import { detectProvider, getProviderKey } from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
@@ -77,8 +78,64 @@ async function processAdJob(job: Job<{ adId: string }>) {
   const userId = ad.userId;
   const productImageUrls: string[] = ad.product?.imageUrls ?? [];
   const avatarVideoUrl: string = ad.avatar?.avatarVideoUrl ?? '';
-  const enhancedPrompt: string = ad.enhancedPrompt ?? ad.rawPrompt;
   const adDuration: number = ad.duration ?? 5;
+
+  // AspectRatio Prisma enum → ratio string for enhanceAdPrompt
+  const aspectRatioReverseMap: Record<string, '9:16' | '16:9' | '1:1'> = {
+    RATIO_9_16: '9:16',
+    RATIO_16_9: '16:9',
+    RATIO_1_1: '1:1',
+  };
+  const aspectRatioStr = aspectRatioReverseMap[ad.aspectRatio as string] ?? '9:16';
+
+  // ── Auto-prompt: scan product image with Qwen VL ──────────────────────────
+  // When autoPrompt=true the API saved rawPrompt='' and enhancedPrompt=null.
+  // We generate the scene description here and enhance it before use.
+  let enhancedPrompt: string = ad.enhancedPrompt ?? ad.rawPrompt;
+
+  if (ad.autoPrompt && !ad.enhancedPrompt) {
+    const aliKeyForVL = await getProviderKey('dashscope');
+    if (aliKeyForVL && productImageUrls[0]) {
+      try {
+        console.log('[adWorker] Auto-prompt: analysing product image with Qwen VL...');
+        const sceneDescription = await dashscopeAnalyzeProductImage(
+          capCloudinaryDimensions(productImageUrls[0], 2000),
+          ad.product?.name ?? 'this product',
+          ad.avatar?.name ?? 'the creator',
+          adDuration,
+          AI_MODELS.DASHSCOPE_VISION_LLM,
+          aliKeyForVL
+        );
+        console.log(`[adWorker] Qwen VL scene: "${sceneDescription}"`);
+        enhancedPrompt = enhanceAdPrompt(sceneDescription, aspectRatioStr, {
+          avatarName: ad.avatar?.name ?? '',
+          productName: ad.product?.name ?? '',
+          duration: adDuration,
+        });
+        // Persist so re-runs don't call Qwen VL again
+        await prisma.ad.update({
+          where: { id: adId },
+          data: { rawPrompt: sceneDescription, enhancedPrompt },
+        });
+      } catch (vlErr) {
+        console.warn(
+          '[adWorker] Qwen VL auto-prompt failed — using fallback prompt:',
+          (vlErr as Error).message
+        );
+        enhancedPrompt = enhanceAdPrompt(
+          `${ad.product?.name ?? 'Product'} showcase by ${ad.avatar?.name ?? 'creator'}`,
+          aspectRatioStr,
+          {
+            avatarName: ad.avatar?.name ?? '',
+            productName: ad.product?.name ?? '',
+            duration: adDuration,
+          }
+        );
+      }
+    } else {
+      console.warn('[adWorker] Auto-prompt skipped: missing API key or product image');
+    }
+  }
 
   // AspectRatio Prisma enum values → pixel dimensions
   const aspectRatioMap: Record<string, { width: number; height: number }> = {

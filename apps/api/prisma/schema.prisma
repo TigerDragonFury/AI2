@@ -187,6 +187,7 @@ model Ad {
   dialogueLanguage  String?     @default("en")
   autoDialogue      Boolean     @default(false)
   voiceAudioUrl     String?
+  autoPrompt        Boolean     @default(false)
   generatedVideoUrl String?
   status            AdStatus    @default(pending)
   errorMessage      String?

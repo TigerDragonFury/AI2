@@ -45,18 +45,25 @@ adsRouter.get('/:id', requireAuth, async (req: AuthRequest, res, next) => {
   }
 });
 
-const generateAdSchema = z.object({
-  avatarId: z.string().cuid(),
-  productId: z.string().cuid(),
-  rawPrompt: z.string().min(10).max(1000),
-  aspectRatio: z.enum(['9:16', '16:9', '1:1']),
-  // wan2.6-i2v supports 2–15 seconds (integer values). We expose 5 / 10 / 15.
-  duration: z.number().int().min(2).max(15).optional().default(5),
-  // Dialogue / voiceover
-  dialogueText: z.string().max(500).optional(),
-  autoDialogue: z.boolean().optional().default(false),
-  dialogueLanguage: z.string().max(10).optional().default('en'),
-});
+const generateAdSchema = z
+  .object({
+    avatarId: z.string().cuid(),
+    productId: z.string().cuid(),
+    rawPrompt: z.string().max(1000).optional().default(''),
+    aspectRatio: z.enum(['9:16', '16:9', '1:1']),
+    // wan2.6-i2v supports 2–15 seconds (integer values). We expose 5 / 10 / 15.
+    duration: z.number().int().min(2).max(15).optional().default(5),
+    // Auto-generate ad prompt from product image (Qwen VL)
+    autoPrompt: z.boolean().optional().default(false),
+    // Dialogue / voiceover
+    dialogueText: z.string().max(500).optional(),
+    autoDialogue: z.boolean().optional().default(false),
+    dialogueLanguage: z.string().max(10).optional().default('en'),
+  })
+  .refine((val) => val.autoPrompt || val.rawPrompt.length >= 10, {
+    message: 'rawPrompt must be at least 10 characters when autoPrompt is disabled',
+    path: ['rawPrompt'],
+  });
 
 // POST /api/ads/generate
 adsRouter.post(
@@ -81,11 +88,13 @@ adsRouter.post(
       });
       if (!product) return next(createError('Product not found', 404, 'NOT_FOUND'));
 
-      const enhancedPrompt = enhanceAdPrompt(body.rawPrompt, body.aspectRatio, {
-        avatarName: avatar.name,
-        productName: product.name,
-        duration: body.duration,
-      });
+      const enhancedPrompt = body.autoPrompt
+        ? null // worker will run Qwen VL to generate this
+        : enhanceAdPrompt(body.rawPrompt, body.aspectRatio, {
+            avatarName: avatar.name,
+            productName: product.name,
+            duration: body.duration,
+          });
 
       const aspectRatioMap: Record<string, 'RATIO_9_16' | 'RATIO_16_9' | 'RATIO_1_1'> = {
         '9:16': 'RATIO_9_16',
@@ -102,6 +111,7 @@ adsRouter.post(
           enhancedPrompt,
           aspectRatio: aspectRatioMap[body.aspectRatio],
           duration: body.duration,
+          autoPrompt: body.autoPrompt ?? false,
           dialogueText: body.dialogueText ?? null,
           dialogueLanguage: body.dialogueLanguage ?? 'en',
           autoDialogue: body.autoDialogue ?? false,

@@ -324,18 +324,18 @@ export async function dashscopeGenerateDialogue(
   const langName = langNames[language] ?? 'English';
 
   const systemPrompt =
-    'You are a professional UGC ad scriptwriter. ' +
-    'Write natural, enthusiastic voiceover lines for a short video ad. ' +
-    'Be concise, conversational, and persuasive. ' +
-    'Output ONLY the spoken dialogue — no stage directions, no speaker labels, no quotation marks.';
+    `You are a professional UGC ad scriptwriter. ` +
+    `You MUST write ONLY in ${langName} — every single word of your response must be in ${langName}. ` +
+    `Write natural, enthusiastic voiceover lines for a short video ad. ` +
+    `Be concise, conversational, and persuasive. ` +
+    `Output ONLY the spoken dialogue in ${langName} — no stage directions, no speaker labels, no quotation marks, no English.`;
 
   const userMessage =
-    `Write a ${duration}-second ad voiceover for "${productName}". ` +
+    `Write a ${duration}-second ad voiceover IN ${langName.toUpperCase()} ONLY for "${productName}". ` +
     `The speaker is ${avatarName || 'an influencer'}. ` +
     `Scene: ${userPrompt}. ` +
-    `Language: ${langName}. ` +
     `Keep it under ${wordLimit} words. ` +
-    `Sound natural, excited, and authentic.`;
+    `IMPORTANT: Your entire response must be written in ${langName} script only — do NOT use English.`;
 
   const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text-generation/generation`, {
     method: 'POST',
@@ -364,4 +364,82 @@ export async function dashscopeGenerateDialogue(
   const dialogue = data?.output?.choices?.[0]?.message?.content?.trim();
   if (!dialogue) throw new Error(`Qwen returned no dialogue: ${JSON.stringify(data)}`);
   return dialogue;
+}
+
+// ─── Qwen VL product image analysis ─────────────────────────────────────────
+
+interface QwenVLResponse {
+  output: {
+    choices: { message: { content: { text?: string }[] | string } }[];
+  };
+}
+
+/**
+ * Use Qwen VL to scan the product image and auto-generate a UGC ad scene description.
+ * Returns a short rawPrompt the worker can use as-is (or pass through enhanceAdPrompt).
+ *
+ * @param productImageUrl  Publicly accessible URL of the product image
+ * @param productName      Product name for context
+ * @param avatarName       Creator/talent name for context
+ * @param duration         Video duration in seconds (for pacing guidance)
+ * @param model            Qwen VL model ID, e.g. "qwen-vl-plus"
+ * @param apiKey           DashScope API key
+ */
+export async function dashscopeAnalyzeProductImage(
+  productImageUrl: string,
+  productName: string,
+  avatarName: string,
+  duration: number,
+  model: string,
+  apiKey: string
+): Promise<string> {
+  const instruction =
+    `You are an expert UGC ad director. Study this product image carefully. ` +
+    `Write a single vivid scene description (1-2 sentences, max 180 characters) for a ${duration}-second UGC video ad. ` +
+    `The creator named "${avatarName || 'the creator'}" is showcasing "${productName}". ` +
+    `Describe: what action the creator is performing with the product, their expression, and the mood. ` +
+    `Start with an action verb. Be specific about the product based on what you see in the image. ` +
+    `Output ONLY the scene description — no titles, no explanations.`;
+
+  const res = await fetch(
+    `${DASHSCOPE_BASE}/api/v1/services/aigc/multimodal-generation/generation`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        input: {
+          messages: [
+            {
+              role: 'user',
+              content: [{ image: productImageUrl }, { text: instruction }],
+            },
+          ],
+        },
+        parameters: { result_format: 'message', max_tokens: 120 },
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`DashScope Qwen VL error ${res.status}: ${txt}`);
+  }
+
+  const data = (await res.json()) as QwenVLResponse;
+  const choice = data?.output?.choices?.[0]?.message?.content;
+  let text: string;
+  if (Array.isArray(choice)) {
+    text = choice
+      .map((c) => c.text ?? '')
+      .join('')
+      .trim();
+  } else {
+    text = (choice as string)?.trim() ?? '';
+  }
+  if (!text) throw new Error(`Qwen VL returned no description: ${JSON.stringify(data)}`);
+  return text;
 }

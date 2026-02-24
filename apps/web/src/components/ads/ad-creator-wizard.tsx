@@ -250,35 +250,84 @@ function PromptStep({
   prompt,
   aspectRatio,
   duration,
+  autoPrompt,
   onPromptChange,
   onAspectChange,
   onDurationChange,
+  onAutoPromptChange,
 }: {
   prompt: string;
   aspectRatio: AspectRatio;
   duration: number;
+  autoPrompt: boolean;
   onPromptChange: (v: string) => void;
   onAspectChange: (v: AspectRatio) => void;
   onDurationChange: (v: number) => void;
+  onAutoPromptChange: (v: boolean) => void;
 }) {
   return (
     <div className="space-y-6">
-      {/* Prompt */}
+      {/* Auto vs Manual prompt toggle */}
       <div className="space-y-1.5">
-        <label className="block text-sm font-medium">
-          Ad Prompt <span className="text-destructive">*</span>
-        </label>
-        <textarea
-          value={prompt}
-          onChange={(e) => onPromptChange(e.target.value)}
-          rows={5}
-          minLength={10}
-          maxLength={1000}
-          placeholder="Describe the scene: what is the person doing with the product? E.g. 'cooking a juicy steak from AlSaraya Butchery, seasoning it, then taking a bite with a satisfied expression'"
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-        />
-        <p className="text-right text-xs text-muted-foreground">{prompt.length}/1000</p>
+        <label className="block text-sm font-medium">Ad Prompt Mode</label>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => onAutoPromptChange(true)}
+            className={[
+              'flex flex-col items-start gap-0.5 rounded-lg border-2 p-3 text-left transition-all',
+              autoPrompt ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+            ].join(' ')}
+          >
+            <span className="text-sm font-semibold">AI Scan</span>
+            <span className="text-xs text-muted-foreground">
+              Qwen Vision analyses your product photo and writes the scene automatically
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onAutoPromptChange(false)}
+            className={[
+              'flex flex-col items-start gap-0.5 rounded-lg border-2 p-3 text-left transition-all',
+              !autoPrompt ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
+            ].join(' ')}
+          >
+            <span className="text-sm font-semibold">Manual</span>
+            <span className="text-xs text-muted-foreground">
+              Write your own scene description (min 10 characters)
+            </span>
+          </button>
+        </div>
       </div>
+
+      {/* Manual prompt textarea */}
+      {!autoPrompt && (
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium">
+            Ad Prompt <span className="text-destructive">*</span>
+          </label>
+          <textarea
+            value={prompt}
+            onChange={(e) => onPromptChange(e.target.value)}
+            rows={5}
+            minLength={10}
+            maxLength={1000}
+            placeholder="Describe the scene: what is the person doing with the product? E.g. \u2018cooking a juicy steak from AlSaraya Butchery, seasoning it, then taking a bite with a satisfied expression\u2019"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p className="text-right text-xs text-muted-foreground">{prompt.length}/1000</p>
+        </div>
+      )}
+
+      {autoPrompt && (
+        <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-center text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">AI will scan your product image</p>
+          <p className="mt-1 text-xs">
+            Qwen Vision will analyse the product photo you uploaded and automatically generate a
+            UGC-style scene prompt for the video.
+          </p>
+        </div>
+      )}
 
       {/* Aspect ratio */}
       <div className="space-y-2">
@@ -448,6 +497,7 @@ export function AdCreatorWizard() {
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
   const [duration, setDuration] = useState(10);
+  const [autoPrompt, setAutoPrompt] = useState(true);
   const [autoDialogue, setAutoDialogue] = useState(true);
   const [dialogueText, setDialogueText] = useState('');
   const [dialogueLanguage, setDialogueLanguage] = useState('en');
@@ -456,10 +506,11 @@ export function AdCreatorWizard() {
 
   const token = session?.accessToken as string | undefined;
 
-  const canNext = [!!avatarId, !!productId, prompt.length >= 10, true][step];
+  const canNext = [!!avatarId, !!productId, autoPrompt || prompt.length >= 10, true][step];
 
   const handleSubmit = async () => {
-    if (!token || !avatarId || !productId || prompt.length < 10) return;
+    if (!token || !avatarId || !productId) return;
+    if (!autoPrompt && prompt.length < 10) return;
     setIsSubmitting(true);
     setError(null);
 
@@ -470,9 +521,10 @@ export function AdCreatorWizard() {
         body: JSON.stringify({
           avatarId,
           productId,
-          rawPrompt: prompt,
+          rawPrompt: autoPrompt ? '' : prompt,
           aspectRatio,
           duration,
+          autoPrompt,
           autoDialogue,
           dialogueText: autoDialogue ? undefined : dialogueText || undefined,
           dialogueLanguage,
@@ -507,9 +559,11 @@ export function AdCreatorWizard() {
             prompt={prompt}
             aspectRatio={aspectRatio}
             duration={duration}
+            autoPrompt={autoPrompt}
             onPromptChange={setPrompt}
             onAspectChange={setAspectRatio}
             onDurationChange={setDuration}
+            onAutoPromptChange={setAutoPrompt}
           />
         )}
         {step === 3 && (
