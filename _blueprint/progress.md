@@ -420,3 +420,59 @@
    - Go to [Google Cloud Console](https://console.cloud.google.com) → APIs → Credentials → your OAuth client
    - Add to Authorized redirect URIs: `https://<your-vercel-url>/api/auth/callback/google`
 4. Run `pnpm run db:seed` one more time against production DB if needed
+
+---
+
+## Phase 11: Production Stability (Feb 2026)
+
+### 11.1 Worker Boot Fix ALIBABA_API_KEY (COMPLETE)
+
+- Worker crashed on start with `ALIBABA_API_KEY not configured` when AI_PROVIDER defaulted to dashscope
+- Added `detectProvider()` helper in `apps/worker/src/lib/settings.ts`
+- Auto-detects provider from DB first, then env vars; infers from whichever key exists
+- Commit: `ca242c8`
+
+### 11.2 DB-Based API Key Storage (COMPLETE)
+
+- Added `AppSetting` model to both Prisma schemas (`app_settings` table)
+- `apps/worker/src/lib/settings.ts`: `getAppSetting()`, `detectProvider()`, `getProviderKey()` with 60s cache
+- `apps/api/src/routes/settings.ts`: admin-only `GET/PUT/DELETE /api/settings`
+- Admin UI page at `apps/web/src/app/(dashboard)/admin/settings/page.tsx`
+- Sidebar "AI Settings" link (admin only)
+- Commit: `646ef6d`
+
+### 11.3 Admin Pages 401 Fix (COMPLETE)
+
+- `/admin/settings` and `/admin/tiers` were using `credentials: 'include'` (cookies)
+- API requires `Authorization: Bearer <JWT>` fixed both pages to use `useSession()` + `accessToken`
+- Commit: `ac4db1c`
+
+### 11.4 DashScope img_url Field Fix (COMPLETE)
+
+- DashScope API rejected jobs with `img_url must be set` code was sending `image_url`
+- Fixed field name in both workers (`adGenerationWorker.ts`, `avatarProcessingWorker.ts`)
+- Commit: `c0dccb0`
+
+### 11.5 429 / Polling Rate Fix (COMPLETE)
+
+- Render free tier overwhelmed by SWR polling every 5s from multiple galleries simultaneously
+- Slowed polling: 10s active / 60s idle in both avatar gallery and ad gallery
+- Added `?.` optional chaining on `product.imageUrls[0]` to prevent crash when undefined
+- Commit: `efee14c`
+
+### 11.6 adGenerationWorker Undefined Payload Fields (COMPLETE)
+
+- API enqueued jobs with only `{ adId }` but worker destructured `userId`, `avatarVideoUrl`,
+  `productImageUrls`, `enhancedPrompt`, `aspectRatio` from `job.data` all undefined
+- Caused: `Cannot read properties of undefined (reading '0')` and `userId: undefined` Prisma error
+- Fix: worker now does `prisma.ad.findUnique` with `include: { product, avatar }` to load all fields from DB
+- AspectRatio enum map updated: handles both Prisma enum names (`RATIO_9_16`) and string keys (`9:16`)
+- Commit: `103f8b7`
+
+### 11.7 Wan 2.2 I2V Upgrade (PENDING)
+
+- Attempted upgrade to `wan2.2-i2v-plus` / `wan2.2-i2v-turbo` but reverted
+- DashScope international endpoint does not yet list these models in free quota
+- Only `wan2.2-kf2v-flash` (keyframe-to-video, different use case) is available
+- When `wan2.2-i2v-*` models appear: update `packages/config/src/index.ts`
+- Reverted commit: `53a3027`
