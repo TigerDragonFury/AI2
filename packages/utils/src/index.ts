@@ -16,6 +16,16 @@ export function isApiError<T>(result: ApiResult<T>): result is ApiError {
 
 // ─── Prompt Enhancement ───────────────────────────────────────────────────────
 
+// Phrases users type as instructions-to-AI rather than scene descriptions
+const META_INSTRUCTION_PATTERNS = [
+  /\bcreate\s+(an?\s+)?ad\b/gi,
+  /\bmake\s+(an?\s+)?(ad|video)\b/gi,
+  /\bgenerate\s+(an?\s+)?(ad|video)\b/gi,
+  /\bfor\s+me\b/gi,
+  /\bi\s+want\s+(you\s+to\s+)?/gi,
+  /\bplease\b/gi,
+];
+
 export function enhanceAdPrompt(
   rawPrompt: string,
   aspectRatio: string,
@@ -27,12 +37,27 @@ export function enhanceAdPrompt(
     '1:1': 'square format',
   };
 
-  // Keep suffix minimal — over-specifying motion/interaction causes hallucinations
-  // in I2V models (phantom hands, morphing objects, extra limbs, etc.)
+  // Strip meta-instructions — the model needs a scene description, not a request
+  let scene = rawPrompt.trim();
+  for (const pattern of META_INSTRUCTION_PATTERNS) {
+    scene = scene.replace(pattern, '');
+  }
+  // Replace 'avatar' (the word) with the actual person's name so the model doesn't
+  // render a cartoon/digital character
+  if (options?.avatarName) {
+    scene = scene.replace(/\bavatar\b/gi, options.avatarName);
+  }
+  scene = scene
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,.-]+|[\s,.-]+$/g, '')
+    .trim();
+
   const parts = [
-    rawPrompt.trim(),
-    options?.avatarName ? `Featured by ${options.avatarName}.` : '',
+    scene,
+    options?.avatarName ? `Featuring ${options.avatarName}.` : '',
     options?.productName ? `Product: ${options.productName}.` : '',
+    // UGC-style direction so the model produces authentic creator-style content
+    'Close-up handheld shots, natural lighting, authentic UGC style.',
     'Photorealistic, stable motion, no distortion.',
     `${ratioContext[aspectRatio] ?? aspectRatio}.`,
   ];

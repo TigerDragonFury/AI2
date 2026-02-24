@@ -269,7 +269,7 @@ function PromptStep({
           rows={5}
           minLength={10}
           maxLength={1000}
-          placeholder="Describe the ad you want to generate. E.g. 'A short video showing the product being used at the gym with energetic music...'"
+          placeholder="Describe the scene: what is the person doing with the product? E.g. 'cooking a juicy steak from AlSaraya Butchery, seasoning it, then taking a bite with a satisfied expression'"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
         <p className="text-right text-xs text-muted-foreground">{prompt.length}/1000</p>
