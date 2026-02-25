@@ -101,14 +101,16 @@ export async function getProviderKey(provider: string): Promise<string | undefin
  * Cached for 60 s alongside all other settings.
  */
 export async function getModelConfig() {
-  const [ttsModel, dialogueLlm, visionLlm, i2vModel, i2iModel, veoModel] = await Promise.all([
-    getAppSetting('tts_model'),
-    getAppSetting('dialogue_model'),
-    getAppSetting('vision_model'),
-    getAppSetting('i2v_model'),
-    getAppSetting('i2i_model'),
-    getAppSetting('veo_model'),
-  ]);
+  const [ttsModel, dialogueLlm, visionLlm, i2vModel, i2iModel, veoModel, geminiTtsModel] =
+    await Promise.all([
+      getAppSetting('tts_model'),
+      getAppSetting('dialogue_model'),
+      getAppSetting('vision_model'),
+      getAppSetting('i2v_model'),
+      getAppSetting('i2i_model'),
+      getAppSetting('veo_model'),
+      getAppSetting('gemini_tts_model'),
+    ]);
   return {
     ttsModel: ttsModel ?? AI_MODELS.DASHSCOPE_TTS,
     dialogueLlm: dialogueLlm ?? AI_MODELS.DASHSCOPE_DIALOGUE_LLM,
@@ -116,5 +118,6 @@ export async function getModelConfig() {
     i2vModel: i2vModel ?? AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
     i2iModel: i2iModel ?? AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
     veoModel: veoModel ?? AI_MODELS.VEO_AD_GENERATION,
+    geminiTtsModel: geminiTtsModel ?? AI_MODELS.GEMINI_TTS,
   };
 }

@@ -16,7 +16,7 @@ import {
   dashscopeAnalyzeProductImage,
   type DialogueContext,
 } from '../lib/dashscope';
-import { veoSubmitJob, veoPollJob, veoDownloadVideo } from '../lib/google';
+import { veoSubmitJob, veoPollJob, veoDownloadVideo, geminiTextToSpeech } from '../lib/google';
 import { detectProvider, getProviderKey, getModelConfig } from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
 
@@ -471,6 +471,50 @@ async function processAdJob(job: Job<{ adId: string }>) {
       // preserves the person's likeness and the product's appearance.
       const geminiKey = await getProviderKey('google');
       if (!geminiKey) throw new Error('GEMINI_API_KEY not configured');
+
+      // ── Step 1.5: Gemini TTS voiceover ────────────────────────────────────
+      let voiceAudioUrl: string | undefined;
+      const dialogueText = ad.dialogueText ?? '';
+
+      if (dialogueText) {
+        try {
+          console.log(`[adWorker] Step 1.5 — generating Gemini TTS audio...`);
+          const audioBuffer = await geminiTextToSpeech(
+            dialogueText,
+            'Kore', // Gemini TTS voice — neutral, multilingual
+            models.geminiTtsModel,
+            geminiKey
+          );
+          const audioUpload = await new Promise<{ secure_url: string }>((resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+              {
+                resource_type: 'video',
+                folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
+                public_id: `${adId}_audio`,
+                format: 'wav',
+              },
+              (err, result) => {
+                if (err || !result) reject(err ?? new Error('Cloudinary audio upload failed'));
+                else resolve(result);
+              }
+            );
+            uploadStream.end(audioBuffer);
+          });
+          voiceAudioUrl = audioUpload.secure_url;
+          console.log(`[adWorker] Step 1.5 complete — audio URL: ${voiceAudioUrl}`);
+          await prisma.ad.update({
+            where: { id: adId },
+            data: { voiceAudioUrl, dialogueText },
+          });
+        } catch (audioErr) {
+          console.warn(
+            '[adWorker] Gemini TTS failed (continuing without audio):',
+            (audioErr as Error).message
+          );
+        }
+      }
+
+      await job.updateProgress(15);
 
       // Build reference image list: person first, product second (order matters for Veo)
       const veoRefs: string[] = [];

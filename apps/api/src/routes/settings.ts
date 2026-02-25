@@ -67,6 +67,7 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
     'i2v_model',
     'i2i_model',
     'veo_model',
+    'gemini_tts_model',
     // Platform OAuth credentials
     'tiktok_client_id',
     'tiktok_client_secret',

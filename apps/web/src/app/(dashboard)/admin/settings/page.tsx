@@ -90,6 +90,12 @@ const SETTING_META: Record<
     type: 'select',
     options: ['veo-3.1-generate-preview', 'veo-2.0-generate-001'],
   },
+  gemini_tts_model: {
+    label: 'Gemini TTS Model',
+    description: 'Gemini TTS model for voiceover synthesis (Google provider only).',
+    type: 'select',
+    options: ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'],
+  },
   // ── Platform OAuth Credentials ─────────────────────────────────────────────────
   tiktok_client_id: {
     label: 'TikTok Client Key',
@@ -143,7 +149,15 @@ const SECTIONS = [
     title: 'AI Model Overrides',
     description:
       'Override which specific model is used for each pipeline step. Leave unset to use the code default.',
-    keys: ['tts_model', 'dialogue_model', 'vision_model', 'i2v_model', 'i2i_model', 'veo_model'],
+    keys: [
+      'tts_model',
+      'dialogue_model',
+      'vision_model',
+      'i2v_model',
+      'i2i_model',
+      'veo_model',
+      'gemini_tts_model',
+    ],
   },
   {
     title: 'Platform OAuth Credentials',

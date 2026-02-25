@@ -56,6 +56,7 @@ export const AI_MODELS = {
 
   // Google Gemini API (generativelanguage.googleapis.com)
   VEO_AD_GENERATION: 'veo-3.1-generate-preview', // Veo 3.1 — reference-image video generation
+  GEMINI_TTS: 'gemini-2.5-flash-preview-tts', // Gemini TTS — multilingual, no language config needed
 
   DASHSCOPE_TTS: 'qwen3-tts-flash', // Qwen3-TTS-Flash — REST multimodal-generation endpoint
   DASHSCOPE_DIALOGUE_LLM: 'qwen-plus', // Qwen text model for auto-generating dialogue scripts
