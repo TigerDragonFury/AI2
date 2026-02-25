@@ -18,19 +18,7 @@ async function processSocialJob(job: Job<SocialPublishingJobPayload>) {
     where: { id: publishJobId },
     include: {
       ad: { select: { generatedVideoUrl: true } },
-      platformToken: {
-        select: {
-          id: true,
-          platform: true,
-          accessToken: true,
-          refreshToken: true,
-          expiresAt: true,
-          platformUserId: true,
-          platformUsername: true,
-          isExpired: true,
-          userId: true,
-        },
-      },
+      platformToken: true,
     },
   });
 
