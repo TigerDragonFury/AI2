@@ -43,6 +43,7 @@ export async function dashscopeSubmitVideoTask(
   const res = await fetch(
     `${DASHSCOPE_BASE}/api/v1/services/aigc/video-generation/video-synthesis`,
     {
+      signal: AbortSignal.timeout(30_000),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -136,6 +137,7 @@ export async function dashscopeSubmitImageEditTask(
   apiKey: string
 ): Promise<string> {
   const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/image2image/image-synthesis`, {
+    signal: AbortSignal.timeout(30_000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -414,6 +416,7 @@ export async function dashscopeGenerateDialogue(
     `IMPORTANT: Your entire response must be written in ${langName} script only — do NOT use English.`;
 
   const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text-generation/generation`, {
+    signal: AbortSignal.timeout(45_000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -491,6 +494,7 @@ export async function dashscopeAnalyzeProductImage(
   const res = await fetch(
     `${DASHSCOPE_BASE}/api/v1/services/aigc/multimodal-generation/generation`,
     {
+      signal: AbortSignal.timeout(30_000),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
