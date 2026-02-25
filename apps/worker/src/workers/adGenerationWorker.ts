@@ -14,6 +14,7 @@ import {
   dashscopeTextToSpeech,
   dashscopeGenerateDialogue,
   dashscopeAnalyzeProductImage,
+  type DialogueContext,
 } from '../lib/dashscope';
 import { detectProvider, getProviderKey } from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
@@ -84,8 +85,11 @@ async function processAdJob(job: Job<{ adId: string }>) {
   const ad = await prisma.ad.findUnique({
     where: { id: adId },
     include: {
-      product: { select: { imageUrls: true, name: true } },
+      product: {
+        select: { imageUrls: true, name: true, price: true, currency: true, description: true },
+      },
       avatar: { select: { avatarVideoUrl: true, rawUrl: true, inputType: true, name: true } },
+      user: { select: { companyName: true, brandVoicePreset: true, brandVoiceCustom: true } },
     },
   });
   if (!ad) throw new Error(`Ad ${adId} not found in database`);
@@ -322,9 +326,25 @@ async function processAdJob(job: Job<{ adId: string }>) {
       let dialogueText = ad.dialogueText ?? '';
 
       if (ad.autoDialogue && !dialogueText) {
+        // Build brand context from user profile + product data
+        const brandVoiceParts = [ad.user?.brandVoicePreset, ad.user?.brandVoiceCustom].filter(
+          Boolean
+        );
+        const dialogueCtx: DialogueContext = {
+          companyName: ad.user?.companyName ?? undefined,
+          brandVoice: brandVoiceParts.length ? brandVoiceParts.join(', ') : undefined,
+          price:
+            ad.product?.price != null
+              ? `${ad.product.price} ${ad.product.currency ?? 'USD'}`
+              : undefined,
+          productDescription: ad.product?.description ?? undefined,
+        };
+
         // Auto-generate dialogue script with Qwen
         try {
-          console.log(`[adWorker] Generating dialogue script (lang=${dialogueLanguage})...`);
+          console.log(
+            `[adWorker] Generating dialogue script (lang=${dialogueLanguage}, company=${dialogueCtx.companyName ?? 'none'}, voice=${dialogueCtx.brandVoice ?? 'default'}, price=${dialogueCtx.price ?? 'none'})...`
+          );
           dialogueText = await dashscopeGenerateDialogue(
             ad.product?.name ?? 'this product',
             ad.avatar?.name ?? 'the creator',
@@ -332,7 +352,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
             dialogueLanguage,
             adDuration,
             AI_MODELS.DASHSCOPE_DIALOGUE_LLM,
-            aliKey
+            aliKey,
+            dialogueCtx
           );
           console.log(`[adWorker] Auto-generated dialogue: "${dialogueText}"`);
         } catch (ttsErr) {

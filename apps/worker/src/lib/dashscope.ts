@@ -290,6 +290,21 @@ interface QwenChatResponse {
 }
 
 /**
+ * Brand/company context fed into the dialogue script generation.
+ * All fields are optional — the prompt degrades gracefully if missing.
+ */
+export interface DialogueContext {
+  /** Company or brand name, e.g. "AlSaraya Butchery" */
+  companyName?: string;
+  /** Combined brand voice string, e.g. "luxury, elegant" or "casual, friendly" */
+  brandVoice?: string;
+  /** Pre-formatted price string, e.g. "89 AED" or "12.99 USD" */
+  price?: string;
+  /** Short product description for additional context */
+  productDescription?: string;
+}
+
+/**
  * Auto-generate a short ad dialogue/voiceover script using Qwen LLM.
  * Returns plain text — the voiceover lines the avatar should speak.
  *
@@ -300,6 +315,7 @@ interface QwenChatResponse {
  * @param duration    Video duration in seconds (for pacing)
  * @param model       Qwen model ID
  * @param apiKey      DashScope API key
+ * @param ctx         Optional brand/company context
  */
 export async function dashscopeGenerateDialogue(
   productName: string,
@@ -308,7 +324,8 @@ export async function dashscopeGenerateDialogue(
   language: string,
   duration: number,
   model: string,
-  apiKey: string
+  apiKey: string,
+  ctx?: DialogueContext
 ): Promise<string> {
   const wordLimit = duration <= 3 ? 15 : duration <= 5 ? 25 : 40;
   const langNames: Record<string, string> = {
@@ -323,6 +340,18 @@ export async function dashscopeGenerateDialogue(
   };
   const langName = langNames[language] ?? 'English';
 
+  // Build optional brand context lines for the system + user prompts
+  const brandTone = ctx?.brandVoice
+    ? `Brand tone / voice: ${ctx.brandVoice}. Match this tone throughout.`
+    : '';
+  const brandName = ctx?.companyName ? `Brand name: "${ctx.companyName}". ` : '';
+  const priceInstruction = ctx?.price
+    ? `(6) The product costs ${ctx.price} — work this price into the CTA naturally (e.g. "Only ${ctx.price}!"). `
+    : '';
+  const productDescLine = ctx?.productDescription
+    ? `Product details: ${ctx.productDescription}. `
+    : '';
+
   const systemPrompt =
     `You are a professional paid-ad copywriter specialising in short UGC video ads. ` +
     `You MUST write ONLY in ${langName} — every single word of your response must be in ${langName}. ` +
@@ -331,11 +360,14 @@ export async function dashscopeGenerateDialogue(
     `and end with an implicit or explicit call to action (try it, order now, get yours, don't miss out, etc.). ` +
     `NEVER narrate what the person is cooking or doing — speak TO the viewer ABOUT the product. ` +
     `Be punchy, energetic, and persuasive. ` +
+    (brandTone ? brandTone + ' ' : '') +
     `Output ONLY the spoken words in ${langName} — no stage directions, no speaker labels, no quotation marks, no English.`;
 
   const userMessage =
     `Write a ${duration}-second PRODUCT AD voiceover IN ${langName.toUpperCase()} ONLY. ` +
     `Product: "${productName}". ` +
+    brandName +
+    productDescLine +
     `Speaker: ${avatarName || 'an influencer'} is showing off the product on camera. ` +
     `Context: ${userPrompt}. ` +
     `Rules: ` +
@@ -344,6 +376,7 @@ export async function dashscopeGenerateDialogue(
     `(3) End with a call to action. ` +
     `(4) Do NOT say "I cooked" / "I made" / "I love how these turned out" — that is narration, not advertising. ` +
     `(5) Keep it under ${wordLimit} words. ` +
+    priceInstruction +
     `IMPORTANT: Your entire response must be written in ${langName} script only — do NOT use English.`;
 
   const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text-generation/generation`, {

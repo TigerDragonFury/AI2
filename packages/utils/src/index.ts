@@ -174,4 +174,5 @@ export const CLOUDINARY_FOLDERS = {
   PROCESSED_AVATARS: 'processed_avatars',
   GENERATED_ADS: 'generated_ads',
   PRODUCT_IMAGES: 'product_images',
+  BRAND_ASSETS: 'brand_assets',
 } as const;

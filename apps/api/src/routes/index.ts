@@ -9,6 +9,7 @@ import { analyticsRouter } from './analytics';
 import { notificationsRouter } from './notifications';
 import { usageRouter } from './usage';
 import { settingsRouter } from './settings';
+import { profileRouter } from './profile';
 
 export const router = Router();
 
@@ -22,3 +23,4 @@ router.use('/analytics', analyticsRouter);
 router.use('/notifications', notificationsRouter);
 router.use('/usage', usageRouter);
 router.use('/settings', settingsRouter);
+router.use('/profile', profileRouter);

@@ -45,28 +45,42 @@ productsRouter.get('/:id', requireAuth, async (req: AuthRequest, res, next) => {
 const createProductSchema = z.object({
   name: z.string().min(1).max(200),
   imageUrls: z.array(z.string().url()).min(1).max(10),
+  description: z.string().max(2000).optional().nullable(),
+  price: z.number().positive().optional().nullable(),
+  currency: z.string().max(10).optional().default('USD'),
 });
 
 // POST /api/products
-productsRouter.post('/', requireAuth, rateLimiter('upload'), async (req: AuthRequest, res, next) => {
-  try {
-    const body = createProductSchema.parse(req.body);
-    const product = await prisma.product.create({
-      data: {
-        userId: req.userId!,
-        name: body.name,
-        imageUrls: body.imageUrls,
-      },
-    });
-    res.status(201).json({ data: product, success: true });
-  } catch (err) {
-    next(err);
+productsRouter.post(
+  '/',
+  requireAuth,
+  rateLimiter('upload'),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const body = createProductSchema.parse(req.body);
+      const product = await prisma.product.create({
+        data: {
+          userId: req.userId!,
+          name: body.name,
+          imageUrls: body.imageUrls,
+          description: body.description ?? null,
+          price: body.price ?? null,
+          currency: body.currency ?? 'USD',
+        },
+      });
+      res.status(201).json({ data: product, success: true });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 const updateProductSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   imageUrls: z.array(z.string().url()).min(1).max(10).optional(),
+  description: z.string().max(2000).optional().nullable(),
+  price: z.number().positive().optional().nullable(),
+  currency: z.string().max(10).optional(),
 });
 
 // PATCH /api/products/:id
@@ -115,25 +129,30 @@ productsRouter.delete('/:id', requireAuth, async (req: AuthRequest, res, next) =
 });
 
 // POST /api/products/presign
-productsRouter.post('/presign', requireAuth, rateLimiter('upload'), async (req: AuthRequest, res, next) => {
-  try {
-    const timestamp = Math.round(Date.now() / 1000);
-    const folder = CLOUDINARY_FOLDERS.PRODUCT_IMAGES;
-    const signature = cloudinary.utils.api_sign_request(
-      { timestamp, folder },
-      process.env.CLOUDINARY_API_SECRET!
-    );
-    res.json({
-      data: {
-        signature,
-        timestamp,
-        folder,
-        cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-        apiKey: process.env.CLOUDINARY_API_KEY,
-      },
-      success: true,
-    });
-  } catch (err) {
-    next(err);
+productsRouter.post(
+  '/presign',
+  requireAuth,
+  rateLimiter('upload'),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const timestamp = Math.round(Date.now() / 1000);
+      const folder = CLOUDINARY_FOLDERS.PRODUCT_IMAGES;
+      const signature = cloudinary.utils.api_sign_request(
+        { timestamp, folder },
+        process.env.CLOUDINARY_API_SECRET!
+      );
+      res.json({
+        data: {
+          signature,
+          timestamp,
+          folder,
+          cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+          apiKey: process.env.CLOUDINARY_API_KEY,
+        },
+        success: true,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);

@@ -84,6 +84,13 @@ model User {
   role           UserRole     @default(user)
   organizationId String?
   tier           SubscriptionTier @default(free)
+  // ── Brand / company profile ────────────────────────────────────────────────
+  companyName        String?
+  companyLogoUrl     String?
+  brandVoicePreset   String?
+  brandVoiceCustom   String?  @db.Text
+  productCategories  String?
+  onboardingDone     Boolean  @default(false)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -165,6 +172,9 @@ model Product {
   userId    String
   name      String
   imageUrls String[]
+  description String?  @db.Text
+  price       Float?
+  currency    String?  @default("USD")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

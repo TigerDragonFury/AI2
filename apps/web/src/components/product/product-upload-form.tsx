@@ -18,10 +18,15 @@ interface FileEntry {
   error?: string;
 }
 
+const CURRENCIES = ['USD', 'AED', 'SAR', 'EUR', 'GBP'] as const;
+
 export function ProductUploadForm() {
   const router = useRouter();
   const { data: session } = useSession();
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [price, setPrice] = useState('');
+  const [currency, setCurrency] = useState<string>('USD');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -136,7 +141,13 @@ export function ProductUploadForm() {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/products`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, imageUrls: uploaded }),
+        body: JSON.stringify({
+          name,
+          imageUrls: uploaded,
+          description: description.trim() || undefined,
+          price: price ? parseFloat(price) : undefined,
+          currency: price ? currency : undefined,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -170,6 +181,59 @@ export function ProductUploadForm() {
           placeholder="e.g. Wireless Headphones"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
+      </div>
+
+      {/* Description */}
+      <div className="space-y-1">
+        <label htmlFor="product-description" className="block text-sm font-medium">
+          Description <span className="font-normal text-muted-foreground">(optional)</span>
+        </label>
+        <textarea
+          id="product-description"
+          rows={3}
+          maxLength={2000}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Describe the product — key features, benefits, target audience…"
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+        <p className="text-right text-xs text-muted-foreground">{description.length}/2000</p>
+      </div>
+
+      {/* Price + Currency */}
+      <div className="flex gap-3">
+        <div className="flex-1 space-y-1">
+          <label htmlFor="product-price" className="block text-sm font-medium">
+            Price <span className="font-normal text-muted-foreground">(optional)</span>
+          </label>
+          <input
+            id="product-price"
+            type="number"
+            min="0"
+            step="0.01"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="e.g. 89"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        <div className="w-28 space-y-1">
+          <label htmlFor="product-currency" className="block text-sm font-medium">
+            Currency
+          </label>
+          <select
+            id="product-currency"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Drop zone */}

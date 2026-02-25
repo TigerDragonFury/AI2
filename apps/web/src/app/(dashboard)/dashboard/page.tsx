@@ -2,12 +2,15 @@ import { BarChart2, Film, Send, Users } from 'lucide-react';
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { OnboardingBanner } from '@/components/dashboard/onboarding-banner';
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
 
   return (
     <div className="space-y-8">
+      <OnboardingBanner />
+
       <div>
         <h1 className="text-2xl font-bold">
           Welcome back{session?.user?.name ? `, ${session.user.name}` : ''}
