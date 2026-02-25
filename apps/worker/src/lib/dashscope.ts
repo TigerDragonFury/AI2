@@ -324,17 +324,26 @@ export async function dashscopeGenerateDialogue(
   const langName = langNames[language] ?? 'English';
 
   const systemPrompt =
-    `You are a professional UGC ad scriptwriter. ` +
+    `You are a professional paid-ad copywriter specialising in short UGC video ads. ` +
     `You MUST write ONLY in ${langName} — every single word of your response must be in ${langName}. ` +
-    `Write natural, enthusiastic voiceover lines for a short video ad. ` +
-    `Be concise, conversational, and persuasive. ` +
-    `Output ONLY the spoken dialogue in ${langName} — no stage directions, no speaker labels, no quotation marks, no English.`;
+    `Your sole goal is to make viewers want to PURCHASE the product being advertised. ` +
+    `Always highlight a concrete benefit or quality of the product (taste, freshness, value, uniqueness, etc.) ` +
+    `and end with an implicit or explicit call to action (try it, order now, get yours, don't miss out, etc.). ` +
+    `NEVER narrate what the person is cooking or doing — speak TO the viewer ABOUT the product. ` +
+    `Be punchy, energetic, and persuasive. ` +
+    `Output ONLY the spoken words in ${langName} — no stage directions, no speaker labels, no quotation marks, no English.`;
 
   const userMessage =
-    `Write a ${duration}-second ad voiceover IN ${langName.toUpperCase()} ONLY for "${productName}". ` +
-    `The speaker is ${avatarName || 'an influencer'}. ` +
-    `Scene: ${userPrompt}. ` +
-    `Keep it under ${wordLimit} words. ` +
+    `Write a ${duration}-second PRODUCT AD voiceover IN ${langName.toUpperCase()} ONLY. ` +
+    `Product: "${productName}". ` +
+    `Speaker: ${avatarName || 'an influencer'} is showing off the product on camera. ` +
+    `Context: ${userPrompt}. ` +
+    `Rules: ` +
+    `(1) Sell the product — highlight WHY it is worth buying (quality, flavour, freshness, value, etc.). ` +
+    `(2) Address the viewer directly ("you", "try", "order", "get yours"). ` +
+    `(3) End with a call to action. ` +
+    `(4) Do NOT say "I cooked" / "I made" / "I love how these turned out" — that is narration, not advertising. ` +
+    `(5) Keep it under ${wordLimit} words. ` +
     `IMPORTANT: Your entire response must be written in ${langName} script only — do NOT use English.`;
 
   const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text-generation/generation`, {
