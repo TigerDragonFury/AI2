@@ -155,20 +155,39 @@ oauthRouter.get('/callback/:platform', async (req: Request, res: Response, _next
       body: tokenBody.toString(),
     });
 
+    const tokenRaw = (await tokenRes.json()) as Record<string, unknown>;
+    console.log(`[oauth] Token response for ${platform}:`, JSON.stringify(tokenRaw));
+
     if (!tokenRes.ok) {
-      const errText = await tokenRes.text();
-      console.error(`[oauth] Token exchange failed for ${platform}:`, errText);
+      console.error(`[oauth] Token exchange HTTP error for ${platform}:`, tokenRaw);
       return res.redirect(
         `${process.env.WEB_BASE_URL}/dashboard/platforms?error=token_exchange_failed`
       );
     }
 
-    const tokenJson = (await tokenRes.json()) as {
-      access_token: string;
-      refresh_token?: string;
-      expires_in?: number;
-      open_id?: string; // TikTok
-      token_type?: string;
+    // TikTok v2 wraps tokens inside a `data` property; other platforms return flat
+    const tokenData =
+      platform === 'tiktok' && tokenRaw.data && typeof tokenRaw.data === 'object'
+        ? (tokenRaw.data as Record<string, unknown>)
+        : tokenRaw;
+
+    // Check for TikTok-style error in body (they return 200 even on error)
+    if (platform === 'tiktok') {
+      const tikErr = tokenRaw.error as Record<string, unknown> | undefined;
+      if (tikErr && tikErr.code && tikErr.code !== 'ok') {
+        console.error(`[oauth] TikTok token error:`, tikErr);
+        return res.redirect(
+          `${process.env.WEB_BASE_URL}/dashboard/platforms?error=token_exchange_failed`
+        );
+      }
+    }
+
+    const tokenJson = {
+      access_token: tokenData.access_token as string,
+      refresh_token: tokenData.refresh_token as string | undefined,
+      expires_in: tokenData.expires_in as number | undefined,
+      open_id: tokenData.open_id as string | undefined, // TikTok
+      token_type: tokenData.token_type as string | undefined,
     };
 
     // Get platform user info
