@@ -291,16 +291,16 @@ export async function dashscopeTextToSpeech(
       if (type === 'error') {
         fail(`Qwen TTS error: ${msg.error?.message ?? raw.toString().slice(0, 200)}`);
       } else if (type === 'session.created') {
-        // Configure voice + PCM output format
+        // Step 1: configure voice + output format — must wait for session.updated before sending text
         ws.send(
           JSON.stringify({
             type: 'session.update',
             session: { voice, output_audio_format: 'pcm16', turn_detection: null },
           })
         );
+      } else if (type === 'session.updated') {
+        // Step 2: now the session is ready — submit text and trigger response
         sessionReady = true;
-
-        // Submit the text item and trigger response
         ws.send(
           JSON.stringify({
             type: 'conversation.item.create',
