@@ -267,6 +267,7 @@ export async function dashscopeTextToSpeech(
         const evt = JSON.parse(raw) as { output?: { audio?: string; finish_reason?: string } };
         const b64 = evt?.output?.audio;
         if (b64) audioChunks.push(Buffer.from(b64, 'base64'));
+        else console.log('[TTS] event (no audio):', raw.slice(0, 200));
       } catch {
         // skip malformed events
       }
