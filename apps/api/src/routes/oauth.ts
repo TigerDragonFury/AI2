@@ -15,6 +15,36 @@ function callbackUrl(platform: PlatformName) {
   return `${process.env.API_BASE_URL}/api/oauth/callback/${platform}`;
 }
 
+// ─── GET /api/oauth/platform-config/:platform ─────────────────────────────────
+// Returns just the clientId for the platform (public info, not secret).
+// Used by the Next.js web app to build the OAuth redirect URL server-side.
+
+oauthRouter.get(
+  '/platform-config/:platform',
+  requireAuth,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const platform = req.params.platform as PlatformName;
+      if (!SUPPORTED.includes(platform))
+        return next(createError('Unsupported platform', 400, 'INVALID_PLATFORM'));
+
+      const creds = await getPlatformCredentials(platform);
+      if (!creds)
+        return next(
+          createError(
+            `${platform} OAuth not configured — add credentials in Admin → AI Configuration`,
+            500,
+            'OAUTH_NOT_CONFIGURED'
+          )
+        );
+
+      res.json({ success: true, clientId: creds.clientId });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ─── GET /api/oauth/connect/:platform ────────────────────────────────────────
 // Generates the platform OAuth URL and redirects the user
 
