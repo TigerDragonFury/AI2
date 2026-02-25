@@ -212,7 +212,7 @@ export async function dashscopePollImageTask(
  *
  * @param text    The dialogue/script to synthesise (max ~500 characters recommended)
  * @param voice   Voice ID, e.g. "longxiaochun" (multilingual, default)
- * @param model   TTS model, e.g. "cosyvoice-v3-flash"
+ * @param model   TTS model, e.g. "cosyvoice-v3-plus"
  * @param apiKey  DashScope API key
  */
 export async function dashscopeTextToSpeech(
