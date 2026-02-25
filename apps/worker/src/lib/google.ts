@@ -142,12 +142,12 @@ export async function veoSubmitJob(
     }
   }
 
-  const parameters: Record<string, unknown> = {};
-  if (refs.length > 0) parameters.referenceImages = refs;
+  const instance: Record<string, unknown> = { prompt };
+  if (refs.length > 0) instance.referenceImages = refs;
 
   const body = {
-    instances: [{ prompt }],
-    parameters,
+    instances: [instance],
+    parameters: {},
   };
 
   console.log(
