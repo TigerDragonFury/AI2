@@ -29,8 +29,9 @@ export async function getAppSetting(
   try {
     const row = await prisma.appSetting.findUnique({ where: { key } });
     dbValue = row?.value ?? undefined;
-  } catch {
-    // DB unavailable — fall through to env
+  } catch (err) {
+    // DB unavailable — fall through to env, but log so we can diagnose
+    console.error(`[settings] DB error reading key "${key}":`, err);
   }
 
   const value = dbValue ?? (envFallback ? process.env[envFallback] : undefined);
@@ -83,6 +84,11 @@ export async function getPlatformCredentials(
       return null;
   }
 
-  if (!clientId || !clientSecret) return null;
+  if (!clientId || !clientSecret) {
+    console.error(
+      `[settings] getPlatformCredentials("${platform}"): missing values — clientId=${!!clientId} clientSecret=${!!clientSecret}`
+    );
+    return null;
+  }
   return { clientId, clientSecret };
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth';
 import { createError } from '../middleware/errorHandler';
+import { bustSettingCache } from '../lib/settings';
 
 export const settingsRouter = Router();
 
@@ -82,6 +83,8 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
       create: { key, value, updatedBy: req.userId },
     });
 
+    bustSettingCache(key);
+
     res.json({
       success: true,
       data: {
@@ -101,6 +104,7 @@ settingsRouter.delete('/:key', requireAuth, requireAdmin, async (req, res, next)
   const { key } = req.params;
   try {
     await prisma.appSetting.deleteMany({ where: { key } });
+    bustSettingCache(key);
     res.json({ success: true, message: `Setting "${key}" deleted — env var fallback active` });
   } catch (err) {
     next(err);
