@@ -47,7 +47,7 @@ export async function publishToTikTok({
     body: JSON.stringify({
       post_info: {
         title: fullCaption.slice(0, 150),
-        privacy_level: 'PUBLIC_TO_EVERYONE',
+        privacy_level: 'SELF_ONLY',
         disable_duet: false,
         disable_comment: false,
         disable_stitch: false,
