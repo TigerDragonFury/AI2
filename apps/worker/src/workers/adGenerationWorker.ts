@@ -516,14 +516,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       await job.updateProgress(15);
 
-      // Build reference image list: person first, product second (order matters for Veo)
-      const veoRefs: string[] = [];
-      if (avatarInputType === 'image' && avatarRawUrl) veoRefs.push(avatarRawUrl);
-      if (productImageUrls[0]) veoRefs.push(productImageUrls[0]);
-
       console.log(
-        `[adWorker] Veo — ${veoRefs.length} reference image(s): ` +
-          `${avatarInputType === 'image' ? 'avatar+product' : 'product-only'}`
+        `[adWorker] Veo — submitting prompt-only job (referenceImages not supported via Gemini Developer API)`
       );
 
       await job.updateProgress(15);
@@ -531,7 +525,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       const veoOperationName = await veoSubmitJob(
         models.veoModel,
         enhancedPrompt,
-        veoRefs,
+        [], // referenceImages unsupported via generativelanguage.googleapis.com
         geminiKey
       );
 

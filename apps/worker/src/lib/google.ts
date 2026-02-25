@@ -92,67 +92,27 @@ export async function geminiTextToSpeech(
 
 // ─── Veo video generation ─────────────────────────────────────────────────────
 
-interface VeoReferenceImage {
-  image: { inlineData: { mimeType: string; data: string } };
-  referenceType: 'asset';
-}
-
-/** Fetch an image URL and return base64 + mimeType. */
-async function imageUrlToBase64(url: string): Promise<{ data: string; mimeType: string }> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`Failed to fetch reference image (${res.status}): ${url}`);
-  const contentType = res.headers.get('content-type') ?? 'image/jpeg';
-  const mimeType = contentType.split(';')[0]?.trim() ?? 'image/jpeg';
-  const buffer = await res.arrayBuffer();
-  return { data: Buffer.from(buffer).toString('base64'), mimeType };
-}
-
 /**
- * Submit a Veo video generation job with up to 3 reference images.
+ * Submit a Veo video generation job.
  *
- * Image order matters for Veo:
- *   [0] = person / avatar  (preserves the subject's appearance)
- *   [1] = product          (preserves the product's appearance)
- *   [2] = optional 3rd asset
+ * Note: referenceImages is only supported via Vertex AI, not the Gemini
+ * Developer API (generativelanguage.googleapis.com). This function uses
+ * prompt-only generation.
  *
  * Returns the operation name for polling.
  */
 export async function veoSubmitJob(
   model: string,
   prompt: string,
-  imageUrls: string[],
+  _imageUrls: string[], // kept for API compatibility — unused with Gemini Developer API
   apiKey: string
 ): Promise<string> {
-  // Fetch all reference images in parallel — skip any that fail to load
-  const refs: VeoReferenceImage[] = [];
-  const results = await Promise.allSettled(
-    imageUrls
-      .filter(Boolean)
-      .slice(0, 3)
-      .map((url) => imageUrlToBase64(url))
-  );
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      refs.push({
-        image: { inlineData: { mimeType: result.value.mimeType, data: result.value.data } },
-        referenceType: 'asset',
-      });
-    } else {
-      console.warn('[Veo] Could not load reference image:', result.reason);
-    }
-  }
-
-  const instance: Record<string, unknown> = { prompt };
-  if (refs.length > 0) instance.referenceImages = refs;
-
   const body = {
-    instances: [instance],
+    instances: [{ prompt }],
     parameters: {},
   };
 
-  console.log(
-    `[Veo] Submitting job — model=${model}, refs=${refs.length}, prompt="${prompt.slice(0, 80)}..."`
-  );
+  console.log(`[Veo] Submitting job — model=${model}, prompt="${prompt.slice(0, 80)}..."`);
 
   const res = await fetch(`${GEMINI_BASE}/models/${encodeURIComponent(model)}:predictLongRunning`, {
     method: 'POST',
