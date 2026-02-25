@@ -539,6 +539,16 @@ export const adGenerationWorker = new Worker<{ adId: string }>(
   {
     connection: redisConnection,
     concurrency: 2,
+    // Upstash Redis free tier: 500k requests/month.
+    // Default drainDelay=5ms causes ~200 req/s per worker when idle — burns the limit in hours.
+    // 5 000ms idle poll = 12 req/min max (vs 12 000/min default).
+    drainDelay: 5_000,
+    // Stalled-job check: every 5 min instead of every 30 s (10× fewer background commands).
+    stalledInterval: 300_000,
+    // Extend lock to 5 min — renewal runs at lockDuration/2 so every 2.5 min per active job
+    // instead of every 15 s.  Safe because jobs complete well within 5 min normally.
+    lockDuration: 300_000,
+    skipVersionCheck: true,
   }
 );
 

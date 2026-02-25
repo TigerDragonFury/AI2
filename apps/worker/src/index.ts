@@ -38,6 +38,11 @@ createBullBoard({
     new BullMQAdapter(socialPublishingQueue) as never,
   ],
   serverAdapter,
+  options: {
+    // Increase UI auto-refresh from ~5 s default to 30 s to reduce Redis reads
+    // triggered by the browser polling the Bull Board Express endpoints.
+    uiConfig: { pollingInterval: { forceInterval: 30_000 } },
+  },
 });
 
 const app = express();

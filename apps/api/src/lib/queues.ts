@@ -17,6 +17,7 @@ redisConnection.on('error', (err) => console.error('[queues] Redis error:', err.
 function makeQueue(name: string) {
   const q = new Queue(name, {
     connection: redisConnection,
+    skipVersionCheck: true,
     defaultJobOptions: {
       attempts: JOB_OPTIONS.ATTEMPTS,
       backoff: JOB_OPTIONS.BACKOFF,

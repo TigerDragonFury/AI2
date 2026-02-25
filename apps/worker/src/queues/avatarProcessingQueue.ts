@@ -6,6 +6,7 @@ import { JOB_OPTIONS } from '@adavatar/config';
 function createQueue(name: QueueName) {
   return new Queue(name, {
     connection: redisConnection,
+    skipVersionCheck: true,
     defaultJobOptions: {
       attempts: JOB_OPTIONS.ATTEMPTS,
       backoff: JOB_OPTIONS.BACKOFF,

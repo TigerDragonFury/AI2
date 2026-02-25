@@ -299,6 +299,10 @@ export const avatarProcessingWorker = new Worker<AvatarProcessingJobPayload>(
   {
     connection: redisConnection as unknown as ConnectionOptions,
     concurrency: 3,
+    drainDelay: 5_000,
+    stalledInterval: 300_000,
+    lockDuration: 300_000,
+    skipVersionCheck: true,
   }
 );
 

@@ -123,6 +123,10 @@ export const socialPublishingWorker = new Worker<SocialPublishingJobPayload>(
   {
     connection: redisConnection,
     concurrency: 5,
+    drainDelay: 5_000,
+    stalledInterval: 300_000,
+    lockDuration: 300_000,
+    skipVersionCheck: true,
   }
 );
 
