@@ -426,6 +426,7 @@ interface QwenVLResponse {
  * @param duration         Video duration in seconds (for pacing guidance)
  * @param model            Qwen VL model ID, e.g. "qwen-vl-plus"
  * @param apiKey           DashScope API key
+ * @param ctx              Optional brand/company context
  */
 export async function dashscopeAnalyzeProductImage(
   productImageUrl: string,
@@ -433,15 +434,25 @@ export async function dashscopeAnalyzeProductImage(
   avatarName: string,
   duration: number,
   model: string,
-  apiKey: string
+  apiKey: string,
+  ctx?: DialogueContext
 ): Promise<string> {
+  const brandToneHint = ctx?.brandVoice
+    ? ` The brand tone is: ${ctx.brandVoice}. Let this influence the mood and energy of the scene description.`
+    : '';
+  const productDetailHint = ctx?.productDescription
+    ? ` Additional product detail: ${ctx.productDescription}.`
+    : '';
+
   const instruction =
     `You are an expert UGC ad director. Study this product image carefully. ` +
     `Write a single vivid scene description (1-2 sentences, max 180 characters) for a ${duration}-second UGC video ad. ` +
     `The creator named "${avatarName || 'the creator'}" is showcasing "${productName}". ` +
     `Describe: what action the creator is performing with the product, their expression, and the mood. ` +
-    `Start with an action verb. Be specific about the product based on what you see in the image. ` +
-    `Output ONLY the scene description — no titles, no explanations.`;
+    `Start with an action verb. Be specific about the product based on what you see in the image.` +
+    brandToneHint +
+    productDetailHint +
+    ` Output ONLY the scene description — no titles, no explanations.`;
 
   const res = await fetch(
     `${DASHSCOPE_BASE}/api/v1/services/aigc/multimodal-generation/generation`,

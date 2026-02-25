@@ -98,6 +98,21 @@ async function processAdJob(job: Job<{ adId: string }>) {
   // Cached 60 s — no restart needed when changed via admin UI.
   const models = await getModelConfig();
 
+  // Build brand/dialogue context once — used by both VL auto-prompt and dialogue generation.
+  const brandVoiceParts = [ad.user?.brandVoicePreset, ad.user?.brandVoiceCustom].filter(Boolean);
+  const dialogueCtx: DialogueContext = {
+    companyName: ad.user?.companyName ?? undefined,
+    brandVoice: brandVoiceParts.length ? brandVoiceParts.join(', ') : undefined,
+    price:
+      ad.product?.price != null ? `${ad.product.price} ${ad.product.currency ?? 'USD'}` : undefined,
+    productDescription: ad.product?.description ?? undefined,
+  };
+  console.log(
+    `[adWorker] Brand context — company:${
+      dialogueCtx.companyName ?? 'none'
+    }, voice:${dialogueCtx.brandVoice ?? 'none'}, price:${dialogueCtx.price ?? 'none'}`
+  );
+
   const userId = ad.userId;
   const productImageUrls: string[] = ad.product?.imageUrls ?? [];
   const avatarVideoUrl: string = ad.avatar?.avatarVideoUrl ?? '';
@@ -127,7 +142,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
           ad.avatar?.name ?? 'the creator',
           adDuration,
           models.visionLlm,
-          aliKeyForVL
+          aliKeyForVL,
+          dialogueCtx
         );
         console.log(`[adWorker] Qwen VL scene: "${sceneDescription}"`);
         enhancedPrompt = enhanceAdPrompt(sceneDescription, aspectRatioStr, {
@@ -330,21 +346,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       let dialogueText = ad.dialogueText ?? '';
 
       if (ad.autoDialogue && !dialogueText) {
-        // Build brand context from user profile + product data
-        const brandVoiceParts = [ad.user?.brandVoicePreset, ad.user?.brandVoiceCustom].filter(
-          Boolean
-        );
-        const dialogueCtx: DialogueContext = {
-          companyName: ad.user?.companyName ?? undefined,
-          brandVoice: brandVoiceParts.length ? brandVoiceParts.join(', ') : undefined,
-          price:
-            ad.product?.price != null
-              ? `${ad.product.price} ${ad.product.currency ?? 'USD'}`
-              : undefined,
-          productDescription: ad.product?.description ?? undefined,
-        };
-
-        // Auto-generate dialogue script with Qwen
+        // Auto-generate dialogue script with Qwen (dialogueCtx built above)
         try {
           console.log(
             `[adWorker] Generating dialogue script (lang=${dialogueLanguage}, company=${dialogueCtx.companyName ?? 'none'}, voice=${dialogueCtx.brandVoice ?? 'default'}, price=${dialogueCtx.price ?? 'none'})...`
