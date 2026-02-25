@@ -79,6 +79,7 @@ export async function dashscopePollVideoTask(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
 
     const res = await fetch(`${DASHSCOPE_BASE}/api/v1/tasks/${taskId}`, {
+      signal: AbortSignal.timeout(15_000),
       headers: { Authorization: `Bearer ${apiKey}` },
     });
 
@@ -89,6 +90,9 @@ export async function dashscopePollVideoTask(
 
     const data = (await res.json()) as DashScopeTaskStatus;
     const status = data?.output?.task_status;
+    console.log(
+      `[DashScope] video task ${taskId} — status: ${status} (attempt ${i + 1}/${maxAttempts})`
+    );
 
     if (status === 'SUCCEEDED') {
       const videoUrl = data?.output?.video_url;
@@ -170,7 +174,7 @@ export async function dashscopeSubmitImageEditTask(
 export async function dashscopePollImageTask(
   taskId: string,
   apiKey: string,
-  maxWaitMs = 180_000 // 3 min — image gen is faster than video
+  maxWaitMs = 300_000 // 5 min — allow for DashScope queue delays
 ): Promise<string> {
   const POLL_INTERVAL = 5000;
   const maxAttempts = Math.ceil(maxWaitMs / POLL_INTERVAL);
@@ -179,6 +183,7 @@ export async function dashscopePollImageTask(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
 
     const res = await fetch(`${DASHSCOPE_BASE}/api/v1/tasks/${taskId}`, {
+      signal: AbortSignal.timeout(15_000),
       headers: { Authorization: `Bearer ${apiKey}` },
     });
 
@@ -189,6 +194,9 @@ export async function dashscopePollImageTask(
 
     const data = (await res.json()) as DashScopeImageTaskStatus;
     const status = data?.output?.task_status;
+    console.log(
+      `[DashScope] image task ${taskId} — status: ${status} (attempt ${i + 1}/${maxAttempts})`
+    );
 
     if (status === 'SUCCEEDED') {
       const imageUrl = data?.output?.results?.[0]?.url;
