@@ -25,14 +25,20 @@ const SETTING_META: Record<
   // ── AI Provider + API Keys ────────────────────────────────────────────────
   ai_provider: {
     label: 'AI Provider',
-    description: 'Which AI service processes avatar animations and ad videos.',
+    description: 'Which AI service generates ad videos.',
     type: 'select',
-    options: ['dashscope', 'fal', 'huggingface'],
+    options: ['dashscope', 'google', 'fal', 'huggingface'],
   },
   alibaba_api_key: {
     label: 'Alibaba Cloud (DashScope) API Key',
     description:
       'Required when provider is "dashscope". Get one at modelstudio.console.alibabacloud.com — 90-day free quota for new users.',
+    type: 'password',
+  },
+  gemini_api_key: {
+    label: 'Google Gemini API Key',
+    description:
+      'Required when provider is "google" (Veo 3.1). Get one at aistudio.google.com/app/apikey.',
     type: 'password',
   },
   fal_key: {
@@ -49,10 +55,9 @@ const SETTING_META: Record<
   // ── DashScope Model Overrides ─────────────────────────────────────────────
   tts_model: {
     label: 'TTS Model',
-    description:
-      'CosyVoice model for voiceover synthesis. v3-plus = higher quality & cloning fidelity; v3-flash = faster & cheaper.',
+    description: 'Qwen3-TTS model for voiceover synthesis (DashScope provider only).',
     type: 'select',
-    options: ['cosyvoice-v3-plus', 'cosyvoice-v3-flash'],
+    options: ['qwen3-tts-flash', 'qwen3-tts-instruct-flash'],
   },
   dialogue_model: {
     label: 'Dialogue / Script LLM',
@@ -74,9 +79,16 @@ const SETTING_META: Record<
   },
   i2i_model: {
     label: 'Image Composite Model',
-    description: 'Wan model used in Step 1 to fuse the avatar photo + product image.',
+    description:
+      'Wan model used in Step 1 to fuse the avatar photo + product image (DashScope only).',
     type: 'select',
     options: ['wan2.5-i2i-preview'],
+  },
+  veo_model: {
+    label: 'Veo Model',
+    description: 'Google Veo model for video generation (Google provider only).',
+    type: 'select',
+    options: ['veo-3.1-generate-preview', 'veo-2.0-generate-001'],
   },
   // ── Platform OAuth Credentials ─────────────────────────────────────────────────
   tiktok_client_id: {
@@ -125,13 +137,13 @@ const SETTING_META: Record<
 const SECTIONS = [
   {
     title: 'AI Provider & API Keys',
-    keys: ['ai_provider', 'alibaba_api_key', 'fal_key', 'huggingface_api_key'],
+    keys: ['ai_provider', 'alibaba_api_key', 'gemini_api_key', 'fal_key', 'huggingface_api_key'],
   },
   {
     title: 'AI Model Overrides',
     description:
       'Override which specific model is used for each pipeline step. Leave unset to use the code default.',
-    keys: ['tts_model', 'dialogue_model', 'vision_model', 'i2v_model', 'i2i_model'],
+    keys: ['tts_model', 'dialogue_model', 'vision_model', 'i2v_model', 'i2i_model', 'veo_model'],
   },
   {
     title: 'Platform OAuth Credentials',

@@ -8,7 +8,12 @@ import { bustSettingCache } from '../lib/settings';
 export const settingsRouter = Router();
 
 // Keys that are treated as secrets — values are masked when listed
-const SECRET_KEYS = new Set(['alibaba_api_key', 'fal_key', 'huggingface_api_key']);
+const SECRET_KEYS = new Set([
+  'alibaba_api_key',
+  'fal_key',
+  'huggingface_api_key',
+  'gemini_api_key',
+]);
 
 function maskValue(key: string, value: string): string {
   if (SECRET_KEYS.has(key)) {
@@ -54,12 +59,14 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
     'alibaba_api_key',
     'fal_key',
     'huggingface_api_key',
+    'gemini_api_key',
     // AI model overrides — worker reads these from DB, falls back to code defaults
     'tts_model',
     'dialogue_model',
     'vision_model',
     'i2v_model',
     'i2i_model',
+    'veo_model',
     // Platform OAuth credentials
     'tiktok_client_id',
     'tiktok_client_secret',

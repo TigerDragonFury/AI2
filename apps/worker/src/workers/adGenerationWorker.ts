@@ -16,6 +16,7 @@ import {
   dashscopeAnalyzeProductImage,
   type DialogueContext,
 } from '../lib/dashscope';
+import { veoSubmitJob, veoPollJob, veoDownloadVideo } from '../lib/google';
 import { detectProvider, getProviderKey, getModelConfig } from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
 
@@ -459,6 +460,50 @@ async function processAdJob(job: Job<{ adId: string }>) {
       await job.updateProgress(80);
 
       const uploadResult = await cloudinary.uploader.upload(dashVideoUrl, {
+        resource_type: 'video',
+        folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
+        public_id: adId,
+      });
+      generatedVideoUrl = uploadResult.secure_url;
+    } else if (provider === 'google') {
+      // ── Google Veo 3.1 — reference-image video generation ─────────────────
+      // Passes avatar photo + product image as reference images so Veo
+      // preserves the person's likeness and the product's appearance.
+      const geminiKey = await getProviderKey('google');
+      if (!geminiKey) throw new Error('GEMINI_API_KEY not configured');
+
+      // Build reference image list: person first, product second (order matters for Veo)
+      const veoRefs: string[] = [];
+      if (avatarInputType === 'image' && avatarRawUrl) veoRefs.push(avatarRawUrl);
+      if (productImageUrls[0]) veoRefs.push(productImageUrls[0]);
+
+      console.log(
+        `[adWorker] Veo — ${veoRefs.length} reference image(s): ` +
+          `${avatarInputType === 'image' ? 'avatar+product' : 'product-only'}`
+      );
+
+      await job.updateProgress(15);
+
+      const veoOperationName = await veoSubmitJob(
+        models.veoModel,
+        enhancedPrompt,
+        veoRefs,
+        geminiKey
+      );
+
+      await job.updateProgress(20);
+
+      const veoVideoUri = await veoPollJob(veoOperationName, geminiKey, (pct) =>
+        job.updateProgress(20 + Math.floor(pct * 0.6))
+      );
+
+      await job.updateProgress(80);
+
+      console.log(`[adWorker] Veo complete — downloading video...`);
+      const veoBuffer = await veoDownloadVideo(veoVideoUri, geminiKey);
+
+      const veoDataUri = `data:video/mp4;base64,${veoBuffer.toString('base64')}`;
+      const uploadResult = await cloudinary.uploader.upload(veoDataUri, {
         resource_type: 'video',
         folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
         public_id: adId,

@@ -62,14 +62,16 @@ export async function detectProvider(): Promise<string> {
   if (explicit) return explicit.toLowerCase();
 
   // 2. Infer from whichever key is available in DB or env
-  const [aliKey, falKey, hfKey] = await Promise.all([
+  const [aliKey, falKey, hfKey, geminiKey] = await Promise.all([
     getAppSetting('alibaba_api_key', 'ALIBABA_API_KEY'),
     getAppSetting('fal_key', 'FAL_KEY'),
     getAppSetting('huggingface_api_key', 'HUGGINGFACE_API_TOKEN'),
+    getAppSetting('gemini_api_key', 'GEMINI_API_KEY'),
   ]);
 
   if (aliKey) return 'dashscope';
   if (falKey) return 'fal';
+  if (geminiKey) return 'google';
   if (hfKey) return 'huggingface';
 
   return 'dashscope'; // default — will show a descriptive error if key missing
@@ -86,6 +88,8 @@ export async function getProviderKey(provider: string): Promise<string | undefin
       return getAppSetting('fal_key', 'FAL_KEY');
     case 'huggingface':
       return getAppSetting('huggingface_api_key', 'HUGGINGFACE_API_TOKEN');
+    case 'google':
+      return getAppSetting('gemini_api_key', 'GEMINI_API_KEY');
     default:
       return undefined;
   }
@@ -97,12 +101,13 @@ export async function getProviderKey(provider: string): Promise<string | undefin
  * Cached for 60 s alongside all other settings.
  */
 export async function getModelConfig() {
-  const [ttsModel, dialogueLlm, visionLlm, i2vModel, i2iModel] = await Promise.all([
+  const [ttsModel, dialogueLlm, visionLlm, i2vModel, i2iModel, veoModel] = await Promise.all([
     getAppSetting('tts_model'),
     getAppSetting('dialogue_model'),
     getAppSetting('vision_model'),
     getAppSetting('i2v_model'),
     getAppSetting('i2i_model'),
+    getAppSetting('veo_model'),
   ]);
   return {
     ttsModel: ttsModel ?? AI_MODELS.DASHSCOPE_TTS,
@@ -110,5 +115,6 @@ export async function getModelConfig() {
     visionLlm: visionLlm ?? AI_MODELS.DASHSCOPE_VISION_LLM,
     i2vModel: i2vModel ?? AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
     i2iModel: i2iModel ?? AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
+    veoModel: veoModel ?? AI_MODELS.VEO_AD_GENERATION,
   };
 }
