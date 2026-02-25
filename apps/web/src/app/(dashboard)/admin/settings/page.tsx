@@ -78,9 +78,76 @@ const SETTING_META: Record<
     type: 'select',
     options: ['wan2.5-i2i-preview'],
   },
+  // ── Platform OAuth Credentials ─────────────────────────────────────────────────
+  tiktok_client_id: {
+    label: 'TikTok Client Key',
+    description:
+      'From TikTok Developer Portal → App → Client Key. Also used as client_key in OAuth.',
+    type: 'password',
+  },
+  tiktok_client_secret: {
+    label: 'TikTok Client Secret',
+    description: 'From TikTok Developer Portal → App → Client Secret.',
+    type: 'password',
+  },
+  google_client_id: {
+    label: 'Google / YouTube Client ID',
+    description: 'OAuth 2.0 Client ID from Google Cloud Console (for YouTube publishing).',
+    type: 'password',
+  },
+  google_client_secret: {
+    label: 'Google / YouTube Client Secret',
+    description: 'OAuth 2.0 Client Secret from Google Cloud Console.',
+    type: 'password',
+  },
+  meta_app_id: {
+    label: 'Meta App ID',
+    description: 'Facebook App ID (used for both Instagram and Facebook publishing).',
+    type: 'password',
+  },
+  meta_app_secret: {
+    label: 'Meta App Secret',
+    description: 'Facebook App Secret.',
+    type: 'password',
+  },
+  snapchat_client_id: {
+    label: 'Snapchat Client ID',
+    description: 'From Snapchat Developer Portal → App credentials.',
+    type: 'password',
+  },
+  snapchat_client_secret: {
+    label: 'Snapchat Client Secret',
+    description: 'From Snapchat Developer Portal → App credentials.',
+    type: 'password',
+  },
 };
 
-const ALL_KEYS = Object.keys(SETTING_META);
+const SECTIONS = [
+  {
+    title: 'AI Provider & API Keys',
+    keys: ['ai_provider', 'alibaba_api_key', 'fal_key', 'huggingface_api_key'],
+  },
+  {
+    title: 'AI Model Overrides',
+    description:
+      'Override which specific model is used for each pipeline step. Leave unset to use the code default.',
+    keys: ['tts_model', 'dialogue_model', 'vision_model', 'i2v_model', 'i2i_model'],
+  },
+  {
+    title: 'Platform OAuth Credentials',
+    description: 'Store your social platform app credentials here — no env var or redeploy needed.',
+    keys: [
+      'tiktok_client_id',
+      'tiktok_client_secret',
+      'google_client_id',
+      'google_client_secret',
+      'meta_app_id',
+      'meta_app_secret',
+      'snapchat_client_id',
+      'snapchat_client_secret',
+    ],
+  },
+] as const;
 
 export default function AdminSettingsPage() {
   const { data: session } = useSession();
@@ -185,116 +252,124 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
-      {/* Settings cards */}
-      <div className="space-y-4">
-        {ALL_KEYS.map((key) => {
-          const meta = SETTING_META[key];
-          const stored = getStored(key);
-          const draft = getDraft(key);
-          const isSaving = saving === key;
-          const isDeleting = deleting === key;
-          const isReveal = reveal[key] ?? false;
+      {/* Settings sections */}
+      {SECTIONS.map((section) => (
+        <div key={section.title} className="space-y-3">
+          <div>
+            <h2 className="text-base font-semibold">{section.title}</h2>
+            {'description' in section && (
+              <p className="text-xs text-muted-foreground mt-0.5">{section.description}</p>
+            )}
+          </div>
+          {(section.keys as unknown as string[]).map((key) => {
+            const meta = SETTING_META[key];
+            const stored = getStored(key);
+            const draft = getDraft(key);
+            const isSaving = saving === key;
+            const isDeleting = deleting === key;
+            const isReveal = reveal[key] ?? false;
 
-          return (
-            <div key={key} className="rounded-lg border border-border bg-card p-4 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-medium text-sm">{meta.label}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{meta.description}</p>
+            return (
+              <div key={key} className="rounded-lg border border-border bg-card p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-sm">{meta.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{meta.description}</p>
+                  </div>
+                  {stored && (
+                    <span className="shrink-0 rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-600 dark:text-green-400">
+                      Set in DB
+                    </span>
+                  )}
+                  {!stored && (
+                    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                      Env var / not set
+                    </span>
+                  )}
                 </div>
+
+                {/* Current stored value (masked) */}
                 {stored && (
-                  <span className="shrink-0 rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-600 dark:text-green-400">
-                    Set in DB
-                  </span>
-                )}
-                {!stored && (
-                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    Env var / not set
-                  </span>
-                )}
-              </div>
-
-              {/* Current stored value (masked) */}
-              {stored && (
-                <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm">
-                  <RefreshCw className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <span className="text-muted-foreground text-xs">Current:</span>
-                  <span className="font-mono text-xs">
-                    {meta.type === 'password' && !isReveal ? stored.value : stored.value}
-                  </span>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    Updated {new Date(stored.updatedAt).toLocaleDateString()}
-                  </span>
-                </div>
-              )}
-
-              {/* Input row */}
-              <div className="flex gap-2">
-                {meta.type === 'select' ? (
-                  <select
-                    className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    value={draft}
-                    onChange={(e) => setDrafts((p) => ({ ...p, [key]: e.target.value }))}
-                  >
-                    <option value="">— select —</option>
-                    {meta.options?.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="relative flex-1">
-                    <input
-                      type={isReveal ? 'text' : 'password'}
-                      placeholder={stored ? 'Enter new value to update…' : 'Enter API key…'}
-                      value={draft}
-                      onChange={(e) => setDrafts((p) => ({ ...p, [key]: e.target.value }))}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setReveal((p) => ({ ...p, [key]: !isReveal }))}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      tabIndex={-1}
-                    >
-                      {isReveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                  <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm">
+                    <RefreshCw className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground text-xs">Current:</span>
+                    <span className="font-mono text-xs">
+                      {meta.type === 'password' && !isReveal ? stored.value : stored.value}
+                    </span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Updated {new Date(stored.updatedAt).toLocaleDateString()}
+                    </span>
                   </div>
                 )}
 
-                <button
-                  onClick={() => handleSave(key)}
-                  disabled={!draft.trim() || isSaving}
-                  className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"
-                >
-                  {isSaving ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                {/* Input row */}
+                <div className="flex gap-2">
+                  {meta.type === 'select' ? (
+                    <select
+                      className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={draft}
+                      onChange={(e) => setDrafts((p) => ({ ...p, [key]: e.target.value }))}
+                    >
+                      <option value="">— select —</option>
+                      {meta.options?.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
                   ) : (
-                    <Save className="h-4 w-4" />
+                    <div className="relative flex-1">
+                      <input
+                        type={isReveal ? 'text' : 'password'}
+                        placeholder={stored ? 'Enter new value to update…' : 'Enter API key…'}
+                        value={draft}
+                        onChange={(e) => setDrafts((p) => ({ ...p, [key]: e.target.value }))}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setReveal((p) => ({ ...p, [key]: !isReveal }))}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {isReveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   )}
-                  Save
-                </button>
 
-                {stored && (
                   <button
-                    onClick={() => handleDelete(key)}
-                    disabled={isDeleting}
-                    title="Remove from DB (reverts to env var)"
-                    className="flex items-center rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-40 transition-colors"
+                    onClick={() => handleSave(key)}
+                    disabled={!draft.trim() || isSaving}
+                    className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"
                   >
-                    {isDeleting ? (
+                    {isSaving ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Trash2 className="h-4 w-4" />
+                      <Save className="h-4 w-4" />
                     )}
+                    Save
                   </button>
-                )}
+
+                  {stored && (
+                    <button
+                      onClick={() => handleDelete(key)}
+                      disabled={isDeleting}
+                      title="Remove from DB (reverts to env var)"
+                      className="flex items-center rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-40 transition-colors"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ))}
 
       <p className="text-xs text-muted-foreground">
         Worker reads new values within 60 seconds (cached). No restart or redeploy required.

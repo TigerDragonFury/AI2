@@ -59,6 +59,15 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
     'vision_model',
     'i2v_model',
     'i2i_model',
+    // Platform OAuth credentials
+    'tiktok_client_id',
+    'tiktok_client_secret',
+    'google_client_id',
+    'google_client_secret',
+    'meta_app_id',
+    'meta_app_secret',
+    'snapchat_client_id',
+    'snapchat_client_secret',
   ];
   if (!ALLOWED_KEYS.includes(key)) {
     return next(

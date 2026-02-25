@@ -5,27 +5,9 @@ import { requireAuth, type AuthRequest } from '../middleware/auth';
 import { createError } from '../middleware/errorHandler';
 import { PLATFORM_OAUTH } from '@adavatar/config';
 import type { PlatformName } from '@adavatar/types';
+import { getPlatformCredentials } from '../lib/settings';
 
 export const oauthRouter = Router();
-
-// ─── Platform credentials from env ───────────────────────────────────────────
-
-const CREDS: Record<PlatformName, { clientId: string; clientSecret: string }> = {
-  tiktok: {
-    clientId: process.env.TIKTOK_CLIENT_ID!,
-    clientSecret: process.env.TIKTOK_CLIENT_SECRET!,
-  },
-  youtube: {
-    clientId: process.env.GOOGLE_CLIENT_ID!,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-  },
-  instagram: { clientId: process.env.META_APP_ID!, clientSecret: process.env.META_APP_SECRET! },
-  facebook: { clientId: process.env.META_APP_ID!, clientSecret: process.env.META_APP_SECRET! },
-  snapchat: {
-    clientId: process.env.SNAPCHAT_CLIENT_ID!,
-    clientSecret: process.env.SNAPCHAT_CLIENT_SECRET!,
-  },
-};
 
 const SUPPORTED: PlatformName[] = ['tiktok', 'youtube', 'instagram', 'facebook', 'snapchat'];
 
@@ -39,15 +21,23 @@ function callbackUrl(platform: PlatformName) {
 oauthRouter.get(
   '/connect/:platform',
   requireAuth,
-  (req: AuthRequest, res: Response, next: NextFunction) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const platform = req.params.platform as PlatformName;
       if (!SUPPORTED.includes(platform))
         return next(createError('Unsupported platform', 400, 'INVALID_PLATFORM'));
 
-      const { clientId } = CREDS[platform];
-      if (!clientId)
-        return next(createError(`${platform} OAuth not configured`, 500, 'OAUTH_NOT_CONFIGURED'));
+      const creds = await getPlatformCredentials(platform);
+      if (!creds)
+        return next(
+          createError(
+            `${platform} OAuth not configured — add credentials in Admin → AI Configuration`,
+            500,
+            'OAUTH_NOT_CONFIGURED'
+          )
+        );
+
+      const { clientId } = creds;
 
       // Encode userId + platform in state JWT to verify on callback
       const state = jwt.sign(
@@ -110,7 +100,13 @@ oauthRouter.get('/callback/:platform', async (req: Request, res: Response, _next
     }
 
     const userId = payload.userId;
-    const { clientId, clientSecret } = CREDS[platform];
+    const creds = await getPlatformCredentials(platform);
+    if (!creds) {
+      return res.redirect(
+        `${process.env.WEB_BASE_URL}/dashboard/platforms?error=oauth_not_configured`
+      );
+    }
+    const { clientId, clientSecret } = creds;
     const config = PLATFORM_OAUTH[platform];
 
     // Exchange code for tokens
