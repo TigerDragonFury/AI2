@@ -230,7 +230,7 @@ export async function dashscopePollImageTask(
  */
 /** Map BCP-47 language codes to Qwen3-TTS language_type strings. */
 // Supported language_type values per Qwen3-TTS-Flash docs.
-// Arabic, French, Korean are not supported — fall back to 'Auto' (auto-detect).
+// Arabic is not supported — falls back to 'Auto'.
 const LANG_TYPE: Record<string, string> = {
   en: 'English',
   zh: 'Chinese',
@@ -239,9 +239,10 @@ const LANG_TYPE: Record<string, string> = {
   ja: 'Japanese',
   it: 'Italian',
   pt: 'Portuguese',
+  fr: 'French',
+  ko: 'Korean',
+  ru: 'Russian',
   ar: 'Auto',
-  fr: 'Auto',
-  ko: 'Auto',
 };
 
 /**
