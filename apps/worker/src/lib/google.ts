@@ -1,12 +1,17 @@
-/**
+﻿/**
  * Google Gemini API helper — Veo video generation + TTS audio synthesis.
  *
- * Veo 3.1 API: https://ai.google.dev/api/generate-video
+ * Veo 3.1 API: https://ai.google.dev/gemini-api/docs/video
  * TTS API:     https://ai.google.dev/api/generate-content (responseModalities: AUDIO)
  *
- * Set env: GEMINI_API_KEY=<key from Google AI Studio or Vertex AI>
+ * Set env: GEMINI_API_KEY=<key from Google AI Studio>
  *          AI_PROVIDER=google
+ *
+ * NOTE: referenceImages in Veo requires the @google/genai SDK — it is NOT
+ * available via the raw predictLongRunning REST endpoint.
  */
+
+import { GoogleGenAI, VideoGenerationReferenceType } from '@google/genai';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const POLL_INTERVAL_MS = 10_000; // 10 s between polls
@@ -40,7 +45,7 @@ function buildWavBuffer(pcm: Buffer, sampleRate = 24000): Buffer {
  * Generate speech using Gemini 2.5 Flash TTS.
  * Returns a WAV buffer (PCM16 24 kHz mono) ready for Cloudinary upload.
  *
- * Voices: Kore, Aoede, Charon, Fenrir, Puck, Orbit, Zephyr, Sulafat, Vindemiatrix…
+ * Voices: Kore, Aoede, Charon, Fenrir, Puck, Orbit, Zephyr, Sulafat, Vindemiatrix...
  * Any language is supported automatically by the model.
  */
 export async function geminiTextToSpeech(
@@ -86,123 +91,113 @@ export async function geminiTextToSpeech(
   }
 
   const pcm = Buffer.from(b64, 'base64');
-  console.log(`[GeminiTTS] Generated ${pcm.byteLength} bytes PCM → wrapping as WAV`);
+  console.log(`[GeminiTTS] Generated ${pcm.byteLength} bytes PCM - wrapping as WAV`);
   return buildWavBuffer(pcm);
 }
 
 // ─── Veo video generation ─────────────────────────────────────────────────────
 
-/**
- * Submit a Veo video generation job.
- *
- * Note: referenceImages is only supported via Vertex AI, not the Gemini
- * Developer API (generativelanguage.googleapis.com). This function uses
- * prompt-only generation.
- *
- * Returns the operation name for polling.
- */
-export async function veoSubmitJob(
-  model: string,
-  prompt: string,
-  _imageUrls: string[], // kept for API compatibility — unused with Gemini Developer API
-  apiKey: string
-): Promise<string> {
-  const body = {
-    instances: [{ prompt }],
-    parameters: {},
-  };
-
-  console.log(`[Veo] Submitting job — model=${model}, prompt="${prompt.slice(0, 80)}..."`);
-
-  const res = await fetch(`${GEMINI_BASE}/models/${encodeURIComponent(model)}:predictLongRunning`, {
-    method: 'POST',
-    headers: {
-      'x-goog-api-key': apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000),
-  });
-
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Veo submit error ${res.status}: ${txt}`);
-  }
-
-  const json = (await res.json()) as { name?: string };
-  if (!json.name) {
-    throw new Error(`Veo API returned no operation name: ${JSON.stringify(json)}`);
-  }
-  console.log(`[Veo] Operation submitted: ${json.name}`);
-  return json.name;
+/** Fetch an image URL and return base64 + mimeType. */
+async function imageUrlToBase64(url: string): Promise<{ data: string; mimeType: string }> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`Failed to fetch reference image (${res.status}): ${url}`);
+  const contentType = res.headers.get('content-type') ?? 'image/jpeg';
+  const mimeType = contentType.split(';')[0]?.trim() ?? 'image/jpeg';
+  const buffer = await res.arrayBuffer();
+  return { data: Buffer.from(buffer).toString('base64'), mimeType };
 }
 
 /**
- * Poll a Veo long-running operation until it completes.
- * Returns the signed video URI (requires API key to download).
+ * Generate a video with Veo 3.1 using the official @google/genai SDK.
+ *
+ * Supports up to 3 reference images (SDK-only feature -- not available via raw REST).
+ * Image order: [0] = person/avatar, [1] = product, [2] = optional 3rd asset.
+ *
+ * Returns the generated video as a Buffer.
  */
-export async function veoPollJob(
-  operationName: string,
+export async function veoGenerateVideo(
+  model: string,
+  prompt: string,
+  imageUrls: string[],
   apiKey: string,
   onProgress?: (pct: number) => void
-): Promise<string> {
-  for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+): Promise<Buffer> {
+  const client = new GoogleGenAI({ apiKey });
 
-    const res = await fetch(`${GEMINI_BASE}/${operationName}`, {
-      headers: { 'x-goog-api-key': apiKey },
-      signal: AbortSignal.timeout(30_000),
-    });
+  // Build reference images in parallel -- skip any that fail to load
+  const referenceImages: Array<{
+    image: { imageBytes: string; mimeType: string };
+    referenceType: VideoGenerationReferenceType;
+  }> = [];
 
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Veo poll error ${res.status}: ${txt}`);
-    }
-
-    const status = (await res.json()) as {
-      done?: boolean;
-      error?: { message?: string; code?: number };
-      response?: {
-        generateVideoResponse?: {
-          generatedSamples?: Array<{ video?: { uri?: string } }>;
-        };
-      };
-    };
-
-    if (status.error) {
-      throw new Error(`Veo job failed: ${status.error.message ?? JSON.stringify(status.error)}`);
-    }
-
-    if (status.done) {
-      const uri = status.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
-      if (!uri) {
-        throw new Error(
-          `Veo job completed but no video URI in response: ${JSON.stringify(status)}`
-        );
+  if (imageUrls.length > 0) {
+    const results = await Promise.allSettled(
+      imageUrls
+        .filter(Boolean)
+        .slice(0, 3)
+        .map((url) => imageUrlToBase64(url))
+    );
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        referenceImages.push({
+          image: { imageBytes: result.value.data, mimeType: result.value.mimeType },
+          referenceType: VideoGenerationReferenceType.ASSET,
+        });
+      } else {
+        console.warn('[Veo] Could not load reference image:', result.reason);
       }
-      console.log(`[Veo] Job complete — video URI obtained`);
-      return uri;
     }
+  }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const config: any = {
+    // reference images require allow_adult; text-only supports allow_all
+    personGeneration: referenceImages.length > 0 ? 'allow_adult' : 'allow_all',
+    durationSeconds: 8, // required when using reference images
+  };
+  if (referenceImages.length > 0) config.referenceImages = referenceImages;
+
+  console.log(
+    `[Veo] Submitting — model=${model}, refs=${referenceImages.length}, prompt="${prompt.slice(0, 80)}..."`
+  );
+
+  // Submit via SDK (handles correct serialization of referenceImages)
+  let operation = await client.models.generateVideos({ model, prompt, config });
+  console.log(`[Veo] Operation: ${operation.name}`);
+
+  // Poll until complete using SDK
+  for (let i = 0; i < MAX_POLLS && !operation.done; i++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    operation = await client.operations.getVideosOperation({ operation });
     const pct = Math.floor((i / MAX_POLLS) * 100);
     console.log(`[Veo] Polling... attempt ${i + 1}/${MAX_POLLS} (~${pct}%)`);
     onProgress?.(pct);
   }
 
-  throw new Error(`Veo job timed out after ${(MAX_POLLS * POLL_INTERVAL_MS) / 60_000} minutes`);
-}
+  if (!operation.done) {
+    throw new Error(`Veo job timed out after ${(MAX_POLLS * POLL_INTERVAL_MS) / 60_000} minutes`);
+  }
 
-/**
- * Download a Veo video from its signed URI.
- * The URI requires the same API key that generated it.
- */
-export async function veoDownloadVideo(uri: string, apiKey: string): Promise<Buffer> {
-  const res = await fetch(uri, {
-    headers: { 'x-goog-api-key': apiKey },
-    signal: AbortSignal.timeout(120_000),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    redirect: 'follow' as any,
-  });
-  if (!res.ok) throw new Error(`Veo video download error ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  const videoFile = operation.response?.generatedVideos?.[0]?.video;
+  if (!videoFile) {
+    throw new Error(
+      `Veo job completed but no video in response: ${JSON.stringify(operation.response).slice(0, 300)}`
+    );
+  }
+
+  console.log(`[Veo] Complete -- downloading video (uri: ${videoFile.uri ?? 'bytes-inline'})`);
+
+  // Prefer inline bytes, fall back to URI download
+  if (videoFile.videoBytes) {
+    return Buffer.from(videoFile.videoBytes, 'base64');
+  } else if (videoFile.uri) {
+    const dlRes = await fetch(videoFile.uri, {
+      headers: { 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!dlRes.ok) throw new Error(`Veo video download error ${dlRes.status}`);
+    return Buffer.from(await dlRes.arrayBuffer());
+  } else {
+    throw new Error('Veo video has neither uri nor videoBytes in response');
+  }
 }
