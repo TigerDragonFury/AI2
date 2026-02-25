@@ -48,7 +48,8 @@ export async function publishToTikTok({
       source_info: {
         source: 'FILE_UPLOAD',
         video_size: videoSize,
-        chunk_size: CHUNK_SIZE,
+        // When video fits in one chunk, chunk_size must equal video_size exactly
+        chunk_size: totalChunks === 1 ? videoSize : CHUNK_SIZE,
         total_chunk_count: totalChunks,
       },
     }),
