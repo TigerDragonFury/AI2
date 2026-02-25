@@ -9,30 +9,7 @@
  *          AI_PROVIDER=dashscope
  */
 
-import WS from 'ws';
-
 const DASHSCOPE_BASE = 'https://dashscope-intl.aliyuncs.com';
-const DASHSCOPE_WS_REALTIME = 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime';
-
-/** Build a minimal 44-byte WAV header for raw PCM16 mono audio. */
-function buildWavBuffer(pcm: Buffer, sampleRate = 24000): Buffer {
-  const header = Buffer.alloc(44);
-  const byteRate = sampleRate * 2; // mono 16-bit = 2 bytes/sample
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + pcm.byteLength, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16); // PCM chunk size
-  header.writeUInt16LE(1, 20); // PCM format
-  header.writeUInt16LE(1, 22); // mono
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(2, 32); // block align
-  header.writeUInt16LE(16, 34); // bits per sample
-  header.write('data', 36);
-  header.writeUInt32LE(pcm.byteLength, 40);
-  return Buffer.concat([header, pcm]);
-}
 
 interface DashScopeTaskResponse {
   output: {
@@ -251,96 +228,79 @@ export async function dashscopePollImageTask(
  *   6. Collect  response.audio.delta  (base64 PCM16 chunks)
  *   7. Resolve  on response.done  → wrap chunks in WAV header
  */
+/** Map BCP-47 language codes to Qwen3-TTS language_type strings. */
+const LANG_TYPE: Record<string, string> = {
+  en: 'English',
+  zh: 'Chinese',
+  ar: 'Arabic',
+  fr: 'French',
+  es: 'Spanish',
+  de: 'German',
+  ja: 'Japanese',
+  ko: 'Korean',
+};
+
+/**
+ * Generate speech using the Qwen3-TTS-Flash REST API.
+ * Returns the raw WAV buffer fetched from the signed OSS URL in the response.
+ *
+ * POST https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
+ * { model, input: { text, voice, language_type } }
+ * → output.audio.url  (signed WAV file)
+ */
 export async function dashscopeTextToSpeech(
   text: string,
   voice: string,
   model: string,
-  apiKey: string
+  apiKey: string,
+  language = 'en'
 ): Promise<Buffer> {
-  const wsUrl = `${DASHSCOPE_WS_REALTIME}?model=${encodeURIComponent(model)}`;
+  const language_type = LANG_TYPE[language] ?? 'English';
 
-  return new Promise<Buffer>((resolve, reject) => {
-    const ws = new WS(wsUrl, {
+  const res = await fetch(
+    `${DASHSCOPE_BASE}/api/v1/services/aigc/multimodal-generation/generation`,
+    {
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'OpenAI-Beta': 'realtime=v1',
+        'Content-Type': 'application/json',
       },
-    });
+      body: JSON.stringify({
+        model,
+        input: { text, voice, language_type },
+      }),
+      signal: AbortSignal.timeout(60_000),
+    }
+  );
 
-    const pcmChunks: Buffer[] = [];
-    let sessionReady = false;
+  const json = (await res.json()) as {
+    status_code?: number;
+    code?: string;
+    message?: string;
+    output?: { audio?: { url?: string; data?: string } };
+  };
 
-    const fail = (msg: string) => {
-      ws.terminate();
-      reject(new Error(msg));
-    };
+  if (!res.ok || json.code) {
+    throw new Error(
+      `Qwen TTS error ${json.status_code ?? res.status}: ${json.message ?? JSON.stringify(json)}`
+    );
+  }
 
-    ws.on('error', (err: Error) => reject(err));
+  const audioUrl = json.output?.audio?.url;
+  const audioData = json.output?.audio?.data;
 
-    ws.on('message', (raw: WS.RawData) => {
-      let msg: { type?: string; session?: unknown; delta?: string; error?: { message?: string } };
-      try {
-        msg = JSON.parse(raw.toString()) as typeof msg;
-      } catch {
-        return;
-      }
+  // Prefer the signed OSS URL; fall back to inline base64 data
+  if (audioUrl) {
+    const wavRes = await fetch(audioUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!wavRes.ok) throw new Error(`Failed to fetch TTS audio: ${wavRes.status}`);
+    return Buffer.from(await wavRes.arrayBuffer());
+  }
 
-      const type = msg.type ?? '';
-      console.log(`[TTS] event: ${type}`);
+  if (audioData) {
+    return Buffer.from(audioData, 'base64');
+  }
 
-      if (type === 'error') {
-        fail(`Qwen TTS error: ${msg.error?.message ?? raw.toString().slice(0, 200)}`);
-      } else if (type === 'session.created') {
-        // Step 1: configure voice + output format — must wait for session.updated before sending text
-        ws.send(
-          JSON.stringify({
-            type: 'session.update',
-            session: { voice, output_audio_format: 'pcm16', turn_detection: null },
-          })
-        );
-      } else if (type === 'session.updated') {
-        // Step 2: session ready — send text inline in response.create (TTS endpoint does not
-        // support conversation.item.create; text goes in response.input instead)
-        sessionReady = true;
-        ws.send(
-          JSON.stringify({
-            type: 'response.create',
-            response: {
-              modalities: ['audio'],
-              input: [
-                {
-                  type: 'message',
-                  role: 'user',
-                  content: [{ type: 'input_text', text }],
-                },
-              ],
-            },
-          })
-        );
-      } else if (type === 'response.audio.delta') {
-        if (msg.delta) pcmChunks.push(Buffer.from(msg.delta, 'base64'));
-      } else if (type === 'response.done') {
-        ws.close();
-        if (pcmChunks.length === 0) {
-          reject(new Error('Qwen TTS returned no audio data'));
-        } else {
-          resolve(buildWavBuffer(Buffer.concat(pcmChunks)));
-        }
-      }
-    });
-
-    ws.on('close', (code: number, reason: Buffer) => {
-      if (pcmChunks.length > 0) {
-        resolve(buildWavBuffer(Buffer.concat(pcmChunks)));
-      } else if (sessionReady) {
-        reject(
-          new Error(`TTS WebSocket closed early (${code}): ${reason.toString().slice(0, 100)}`)
-        );
-      } else {
-        reject(new Error(`TTS WebSocket closed before session started (${code})`));
-      }
-    });
-  });
+  throw new Error('Qwen TTS returned no audio URL or data');
 }
 
 // ─── Qwen dialogue auto-generation ───────────────────────────────────────────

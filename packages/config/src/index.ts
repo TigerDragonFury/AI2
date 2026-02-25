@@ -53,7 +53,7 @@ export const AI_MODELS = {
   DASHSCOPE_AVATAR_ANIMATION: 'wan2.1-i2v-turbo', // image → animated video
   DASHSCOPE_AD_GENERATION_I2V: 'wan2.6-i2v', // Wan2.6 image-to-video
   DASHSCOPE_AD_IMAGE_EDIT: 'wan2.5-i2i-preview', // Step 1: multi-image fusion (avatar + product → composite)
-  DASHSCOPE_TTS: 'qwen3-tts-vc-realtime-2026-01-15', // Qwen TTS Realtime — OpenAI-realtime-compatible WS
+  DASHSCOPE_TTS: 'qwen3-tts-flash', // Qwen3-TTS-Flash — REST multimodal-generation endpoint
   DASHSCOPE_DIALOGUE_LLM: 'qwen-plus', // Qwen text model for auto-generating dialogue scripts
   DASHSCOPE_VISION_LLM: 'qwen-vl-plus', // Qwen VL multimodal model for product image analysis
 
@@ -79,14 +79,14 @@ export const AD_GENERATION = {
  * See: https://www.alibabacloud.com/help/en/model-studio/cosyvoice
  */
 export const TTS_VOICE_BY_LANGUAGE: Record<string, string> = {
-  en: 'longanyang',
-  ar: 'longanyang',
-  fr: 'longanyang',
-  es: 'longanyang',
-  de: 'longanyang',
-  ja: 'longanyang',
-  ko: 'longanyang',
-  zh: 'longanyang',
+  en: 'Cherry',
+  ar: 'Cherry',
+  fr: 'Cherry',
+  es: 'Cherry',
+  de: 'Cherry',
+  ja: 'Cherry',
+  ko: 'Cherry',
+  zh: 'Cherry',
 };
 
 export const SUPPORTED_DIALOGUE_LANGUAGES = [

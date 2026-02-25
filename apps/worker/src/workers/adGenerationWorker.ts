@@ -384,7 +384,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
             dialogueText,
             voice,
             models.ttsModel,
-            aliKey
+            aliKey,
+            dialogueLanguage
           );
 
           // Upload audio to Cloudinary for a permanent, publicly accessible URL
