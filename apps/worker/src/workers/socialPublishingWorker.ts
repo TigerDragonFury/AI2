@@ -26,10 +26,16 @@ async function processSocialJob(job: Job<SocialPublishingJobPayload>) {
     throw new Error(`PublishJob ${publishJobId} not found`);
   }
 
-  const { userId, platform, caption, hashtags } = publishJob;
+  const { userId, caption, hashtags } = publishJob;
+  // platformToken.platform is the authoritative source — falls back if publishJob.platform
+  // is undefined due to enum mapping issues between manually-created SQL and Prisma
+  const platform = (publishJob.platform ??
+    publishJob.platformToken?.platform) as import('@adavatar/types').PlatformName;
   const generatedVideoUrl = publishJob.ad?.generatedVideoUrl ?? null;
 
-  console.log(`[publishWorker] Publishing job ${publishJobId} to ${platform}`);
+  console.log(
+    `[publishWorker] Publishing job ${publishJobId} — platform from job: ${publishJob.platform}, from token: ${publishJob.platformToken?.platform}, resolved: ${platform}`
+  );
 
   await prisma.publishJob.update({
     where: { id: publishJobId },
