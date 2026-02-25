@@ -12,7 +12,8 @@ export const oauthRouter = Router();
 const SUPPORTED: PlatformName[] = ['tiktok', 'youtube', 'instagram', 'facebook', 'snapchat'];
 
 function callbackUrl(platform: PlatformName) {
-  return `${process.env.API_BASE_URL}/api/oauth/callback/${platform}`;
+  const base = (process.env.API_BASE_URL ?? 'https://adavatar-api.onrender.com').replace(/\/$/, '');
+  return `${base}/api/oauth/callback/${platform}`;
 }
 
 // ─── GET /api/oauth/platform-config/:platform ─────────────────────────────────
@@ -165,25 +166,30 @@ oauthRouter.get('/callback/:platform', async (req: Request, res: Response, _next
       );
     }
 
+    // TikTok returns 200 with {"error":"invalid_grant",...} on failure — catch it early
+    if (tokenRaw.error && typeof tokenRaw.error === 'string' && tokenRaw.error !== 'ok') {
+      console.error(`[oauth] Token exchange error body for ${platform}:`, tokenRaw);
+      return res.redirect(
+        `${process.env.WEB_BASE_URL}/dashboard/platforms?error=token_exchange_failed`
+      );
+    }
+
     // TikTok v2 wraps tokens inside a `data` property; other platforms return flat
     const tokenData =
       platform === 'tiktok' && tokenRaw.data && typeof tokenRaw.data === 'object'
         ? (tokenRaw.data as Record<string, unknown>)
         : tokenRaw;
 
-    // Check for TikTok-style error in body (they return 200 even on error)
-    if (platform === 'tiktok') {
-      const tikErr = tokenRaw.error as Record<string, unknown> | undefined;
-      if (tikErr && tikErr.code && tikErr.code !== 'ok') {
-        console.error(`[oauth] TikTok token error:`, tikErr);
-        return res.redirect(
-          `${process.env.WEB_BASE_URL}/dashboard/platforms?error=token_exchange_failed`
-        );
-      }
+    const accessToken = tokenData.access_token as string | undefined;
+    if (!accessToken) {
+      console.error(`[oauth] No access_token in response for ${platform}:`, tokenRaw);
+      return res.redirect(
+        `${process.env.WEB_BASE_URL}/dashboard/platforms?error=token_exchange_failed`
+      );
     }
 
     const tokenJson = {
-      access_token: tokenData.access_token as string,
+      access_token: accessToken,
       refresh_token: tokenData.refresh_token as string | undefined,
       expires_in: tokenData.expires_in as number | undefined,
       open_id: tokenData.open_id as string | undefined, // TikTok
