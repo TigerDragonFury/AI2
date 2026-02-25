@@ -299,19 +299,24 @@ export async function dashscopeTextToSpeech(
           })
         );
       } else if (type === 'session.updated') {
-        // Step 2: now the session is ready — submit text and trigger response
+        // Step 2: session ready — send text inline in response.create (TTS endpoint does not
+        // support conversation.item.create; text goes in response.input instead)
         sessionReady = true;
         ws.send(
           JSON.stringify({
-            type: 'conversation.item.create',
-            item: {
-              type: 'message',
-              role: 'user',
-              content: [{ type: 'input_text', text }],
+            type: 'response.create',
+            response: {
+              modalities: ['audio'],
+              input: [
+                {
+                  type: 'message',
+                  role: 'user',
+                  content: [{ type: 'input_text', text }],
+                },
+              ],
             },
           })
         );
-        ws.send(JSON.stringify({ type: 'response.create' }));
       } else if (type === 'response.audio.delta') {
         if (msg.delta) pcmChunks.push(Buffer.from(msg.delta, 'base64'));
       } else if (type === 'response.done') {
