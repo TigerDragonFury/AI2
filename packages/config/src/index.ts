@@ -53,7 +53,7 @@ export const AI_MODELS = {
   DASHSCOPE_AVATAR_ANIMATION: 'wan2.1-i2v-turbo', // image → animated video
   DASHSCOPE_AD_GENERATION_I2V: 'wan2.6-i2v', // Wan2.6 image-to-video
   DASHSCOPE_AD_IMAGE_EDIT: 'wan2.5-i2i-preview', // Step 1: multi-image fusion (avatar + product → composite)
-  DASHSCOPE_TTS: 'cosyvoice-v2', // CosyVoice v2 — available on dashscope-intl
+  DASHSCOPE_TTS: 'cosyvoice-v3-plus', // CosyVoice v3 Plus
   DASHSCOPE_DIALOGUE_LLM: 'qwen-plus', // Qwen text model for auto-generating dialogue scripts
   DASHSCOPE_VISION_LLM: 'qwen-vl-plus', // Qwen VL multimodal model for product image analysis
 
@@ -79,14 +79,14 @@ export const AD_GENERATION = {
  * See: https://www.alibabacloud.com/help/en/model-studio/cosyvoice
  */
 export const TTS_VOICE_BY_LANGUAGE: Record<string, string> = {
-  en: 'longxiaochun', // default multilingual voice — speaks English naturally
-  ar: 'longxiaochun', // Arabic text → Arabic speech with the same voice
-  fr: 'longxiaochun', // French
-  es: 'longxiaochun', // Spanish
-  de: 'longxiaochun', // German
-  ja: 'longxiaochun', // Japanese
-  ko: 'longxiaochun', // Korean
-  zh: 'longxiaochun', // Chinese (native)
+  en: 'longanyang',
+  ar: 'longanyang',
+  fr: 'longanyang',
+  es: 'longanyang',
+  de: 'longanyang',
+  ja: 'longanyang',
+  ko: 'longanyang',
+  zh: 'longanyang',
 };
 
 export const SUPPORTED_DIALOGUE_LANGUAGES = [

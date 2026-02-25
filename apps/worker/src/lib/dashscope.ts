@@ -9,6 +9,8 @@
  *          AI_PROVIDER=dashscope
  */
 
+import WS from 'ws';
+
 const DASHSCOPE_BASE = 'https://dashscope-intl.aliyuncs.com';
 
 interface DashScopeTaskResponse {
@@ -221,64 +223,95 @@ export async function dashscopeTextToSpeech(
   model: string,
   apiKey: string
 ): Promise<Buffer> {
-  const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text2audio/synthesis`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'X-DashScope-SSE': 'enable',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify({
-      model,
-      input: { text },
-      parameters: { voice, format: 'mp3', sample_rate: 22050 },
-    }),
-  });
+  const DASHSCOPE_WS = 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference';
+  const taskId = crypto.randomUUID();
 
-  if (!res.ok || !res.body) {
-    const txt = await res.text();
-    throw new Error(`DashScope TTS error ${res.status}: ${txt}`);
-  }
+  return new Promise<Buffer>((resolve, reject) => {
+    const ws = new WS(DASHSCOPE_WS, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
 
-  const audioChunks: Buffer[] = [];
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let lineBuffer = '';
-  let streamFinished = false;
+    const audioChunks: Buffer[] = [];
+    let taskStarted = false;
 
-  while (!streamFinished) {
-    // eslint-disable-next-line no-await-in-loop
-    const { done, value } = await reader.read();
-    if (done) {
-      streamFinished = true;
-      break;
-    }
+    const fail = (msg: string) => {
+      ws.terminate();
+      reject(new Error(msg));
+    };
 
-    lineBuffer += decoder.decode(value, { stream: true });
-    const lines = lineBuffer.split('\n');
-    lineBuffer = lines.pop() ?? '';
+    ws.on('error', (err: Error) => reject(err));
 
-    for (const line of lines) {
-      if (!line.startsWith('data:')) continue;
-      const raw = line.slice(5).trim();
-      if (!raw || raw === '[DONE]') continue;
+    ws.on('open', () => {
+      // Send run-task to initialise the TTS session
+      ws.send(
+        JSON.stringify({
+          header: { action: 'run-task', task_id: taskId, streaming: 'duplex' },
+          payload: {
+            task_group: 'audio',
+            task: 'tts',
+            function: 'SpeechSynthesizer',
+            model,
+            parameters: { text_type: 'PlainText', voice, format: 'mp3', volume: 50, rate: 1.0 },
+            input: {},
+          },
+        })
+      );
+    });
+
+    ws.on('message', (raw: WS.RawData) => {
+      let msg: {
+        header?: { event?: string; error_code?: string; error_message?: string };
+        payload?: { output?: { audio?: string } };
+      };
       try {
-        const evt = JSON.parse(raw) as { output?: { audio?: string; finish_reason?: string } };
-        const b64 = evt?.output?.audio;
-        if (b64) audioChunks.push(Buffer.from(b64, 'base64'));
-        else console.log('[TTS] event (no audio):', raw.slice(0, 200));
+        msg = JSON.parse(raw.toString()) as typeof msg;
       } catch {
-        // skip malformed events
+        return;
       }
-    }
-  }
 
-  if (audioChunks.length === 0) {
-    throw new Error('DashScope TTS returned no audio data');
-  }
+      const event = msg.header?.event;
 
-  return Buffer.concat(audioChunks);
+      if (event === 'task-started') {
+        taskStarted = true;
+        // Send the text then signal end-of-input
+        ws.send(
+          JSON.stringify({
+            header: { action: 'continue-task', task_id: taskId, streaming: 'duplex' },
+            payload: { input: { text } },
+          })
+        );
+        ws.send(
+          JSON.stringify({
+            header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
+            payload: { input: {} },
+          })
+        );
+      } else if (event === 'result-generated') {
+        const b64 = msg.payload?.output?.audio;
+        if (b64) audioChunks.push(Buffer.from(b64, 'base64'));
+      } else if (event === 'task-finished') {
+        ws.close();
+        if (audioChunks.length === 0) {
+          reject(new Error('DashScope TTS returned no audio data'));
+        } else {
+          resolve(Buffer.concat(audioChunks));
+        }
+      } else if (event === 'task-failed') {
+        fail(`DashScope TTS task failed: ${msg.header?.error_message ?? JSON.stringify(msg)}`);
+      } else if (!taskStarted) {
+        // unexpected early message
+        console.warn('[TTS] unexpected message before task-started:', raw.toString().slice(0, 200));
+      }
+    });
+
+    ws.on('close', (code: number, reason: Buffer) => {
+      if (audioChunks.length > 0) {
+        resolve(Buffer.concat(audioChunks));
+      } else {
+        reject(new Error(`TTS WebSocket closed early (${code}): ${reason.toString()}`));
+      }
+    });
+  });
 }
 
 // ─── Qwen dialogue auto-generation ───────────────────────────────────────────
