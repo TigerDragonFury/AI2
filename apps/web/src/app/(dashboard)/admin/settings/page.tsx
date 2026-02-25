@@ -27,7 +27,7 @@ const SETTING_META: Record<
     label: 'AI Provider',
     description: 'Which AI service generates ad videos.',
     type: 'select',
-    options: ['dashscope', 'google', 'fal', 'huggingface'],
+    options: ['kling', 'dashscope', 'google', 'fal', 'huggingface'],
   },
   alibaba_api_key: {
     label: 'Alibaba Cloud (DashScope) API Key',
@@ -39,6 +39,12 @@ const SETTING_META: Record<
     label: 'Google Gemini API Key',
     description:
       'Required when provider is "google" (Veo 3.1). Get one at aistudio.google.com/app/apikey.',
+    type: 'password',
+  },
+  kling_api_key: {
+    label: 'Kie.ai API Key',
+    description:
+      'Required when provider is "kling" (Veo 3.1 via kie.ai — no daily quota, 25% of Google pricing). Get one at kie.ai/api-key.',
     type: 'password',
   },
   fal_key: {
@@ -96,6 +102,13 @@ const SETTING_META: Record<
     type: 'select',
     options: ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'],
   },
+  kling_veo_model: {
+    label: 'Kling Veo Model',
+    description:
+      'Veo model used via kie.ai. veo3_fast supports REFERENCE_2_VIDEO (preserves subject appearance); veo3 is higher quality but image-to-video only.',
+    type: 'select',
+    options: ['veo3_fast', 'veo3'],
+  },
   // ── Platform OAuth Credentials ─────────────────────────────────────────────────
   tiktok_client_id: {
     label: 'TikTok Client Key',
@@ -143,7 +156,14 @@ const SETTING_META: Record<
 const SECTIONS = [
   {
     title: 'AI Provider & API Keys',
-    keys: ['ai_provider', 'alibaba_api_key', 'gemini_api_key', 'fal_key', 'huggingface_api_key'],
+    keys: [
+      'ai_provider',
+      'kling_api_key',
+      'alibaba_api_key',
+      'gemini_api_key',
+      'fal_key',
+      'huggingface_api_key',
+    ],
   },
   {
     title: 'AI Model Overrides',
@@ -157,6 +177,7 @@ const SECTIONS = [
       'i2i_model',
       'veo_model',
       'gemini_tts_model',
+      'kling_veo_model',
     ],
   },
   {

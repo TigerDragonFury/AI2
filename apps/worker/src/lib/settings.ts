@@ -62,16 +62,18 @@ export async function detectProvider(): Promise<string> {
   if (explicit) return explicit.toLowerCase();
 
   // 2. Infer from whichever key is available in DB or env
-  const [aliKey, falKey, hfKey, geminiKey] = await Promise.all([
+  const [aliKey, falKey, hfKey, geminiKey, klingKey] = await Promise.all([
     getAppSetting('alibaba_api_key', 'ALIBABA_API_KEY'),
     getAppSetting('fal_key', 'FAL_KEY'),
     getAppSetting('huggingface_api_key', 'HUGGINGFACE_API_TOKEN'),
     getAppSetting('gemini_api_key', 'GEMINI_API_KEY'),
+    getAppSetting('kling_api_key', 'KLING_API_KEY'),
   ]);
 
   if (aliKey) return 'dashscope';
   if (falKey) return 'fal';
   if (geminiKey) return 'google';
+  if (klingKey) return 'kling';
   if (hfKey) return 'huggingface';
 
   return 'dashscope'; // default — will show a descriptive error if key missing
@@ -90,6 +92,8 @@ export async function getProviderKey(provider: string): Promise<string | undefin
       return getAppSetting('huggingface_api_key', 'HUGGINGFACE_API_TOKEN');
     case 'google':
       return getAppSetting('gemini_api_key', 'GEMINI_API_KEY');
+    case 'kling':
+      return getAppSetting('kling_api_key', 'KLING_API_KEY');
     default:
       return undefined;
   }
@@ -101,16 +105,25 @@ export async function getProviderKey(provider: string): Promise<string | undefin
  * Cached for 60 s alongside all other settings.
  */
 export async function getModelConfig() {
-  const [ttsModel, dialogueLlm, visionLlm, i2vModel, i2iModel, veoModel, geminiTtsModel] =
-    await Promise.all([
-      getAppSetting('tts_model'),
-      getAppSetting('dialogue_model'),
-      getAppSetting('vision_model'),
-      getAppSetting('i2v_model'),
-      getAppSetting('i2i_model'),
-      getAppSetting('veo_model'),
-      getAppSetting('gemini_tts_model'),
-    ]);
+  const [
+    ttsModel,
+    dialogueLlm,
+    visionLlm,
+    i2vModel,
+    i2iModel,
+    veoModel,
+    geminiTtsModel,
+    klingVeoModel,
+  ] = await Promise.all([
+    getAppSetting('tts_model'),
+    getAppSetting('dialogue_model'),
+    getAppSetting('vision_model'),
+    getAppSetting('i2v_model'),
+    getAppSetting('i2i_model'),
+    getAppSetting('veo_model'),
+    getAppSetting('gemini_tts_model'),
+    getAppSetting('kling_veo_model'),
+  ]);
   return {
     ttsModel: ttsModel ?? AI_MODELS.DASHSCOPE_TTS,
     dialogueLlm: dialogueLlm ?? AI_MODELS.DASHSCOPE_DIALOGUE_LLM,
@@ -119,5 +132,6 @@ export async function getModelConfig() {
     i2iModel: i2iModel ?? AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
     veoModel: veoModel ?? AI_MODELS.VEO_AD_GENERATION,
     geminiTtsModel: geminiTtsModel ?? AI_MODELS.GEMINI_TTS,
+    klingVeoModel: klingVeoModel ?? AI_MODELS.KLING_VEO_FAST,
   };
 }

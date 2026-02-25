@@ -58,6 +58,10 @@ export const AI_MODELS = {
   VEO_AD_GENERATION: 'veo-3.1-generate-preview', // Veo 3.1 — reference-image video generation
   GEMINI_TTS: 'gemini-2.5-flash-preview-tts', // Gemini TTS — multilingual, no language config needed
 
+  // Kie.ai Veo 3.1 API (api.kie.ai) — 25% of Google direct pricing, REFERENCE_2_VIDEO support
+  KLING_VEO_FAST: 'veo3_fast', // Veo 3.1 Fast — cost-efficient, supports REFERENCE_2_VIDEO
+  KLING_VEO_QUALITY: 'veo3', // Veo 3.1 Quality — highest fidelity, image-to-video only
+
   DASHSCOPE_TTS: 'qwen3-tts-flash', // Qwen3-TTS-Flash — REST multimodal-generation endpoint
   DASHSCOPE_DIALOGUE_LLM: 'qwen-plus', // Qwen text model for auto-generating dialogue scripts
   DASHSCOPE_VISION_LLM: 'qwen-vl-plus', // Qwen VL multimodal model for product image analysis

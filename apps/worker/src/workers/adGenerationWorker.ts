@@ -17,6 +17,7 @@ import {
   type DialogueContext,
 } from '../lib/dashscope';
 import { veoGenerateVideo, geminiTextToSpeech } from '../lib/google';
+import { klingVeoGenerateVideo } from '../lib/kling';
 import { detectProvider, getProviderKey, getModelConfig } from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
 
@@ -538,6 +539,52 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       const veoDataUri = `data:video/mp4;base64,${veoBuffer.toString('base64')}`;
       const uploadResult = await cloudinary.uploader.upload(veoDataUri, {
+        resource_type: 'video',
+        folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
+        public_id: adId,
+      });
+      generatedVideoUrl = uploadResult.secure_url;
+    } else if (provider === 'kling') {
+      // ── Kie.ai Veo 3.1 — credit-based, no daily quota, native audio ────────
+      // Veo 3.1 synthesises audio directly from scene cues in the prompt, so
+      // no separate TTS step is needed.  Dialogue is injected into the prompt.
+      const klingKey = await getProviderKey('kling');
+      if (!klingKey) throw new Error('KLING_API_KEY not configured');
+
+      // Embed spoken dialogue into the video prompt so Veo voices the lines.
+      const klingDialogue = ad.dialogueText ?? '';
+      const klingPrompt = klingDialogue
+        ? `${enhancedPrompt}\n\nDialogue (spoken in the video): "${klingDialogue}"`
+        : enhancedPrompt;
+
+      if (klingDialogue) {
+        await prisma.ad.update({ where: { id: adId }, data: { dialogueText: klingDialogue } });
+      }
+
+      await job.updateProgress(15);
+
+      // Build reference image list (person first, product second)
+      const klingRefs: string[] = [];
+      if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
+      if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
+
+      console.log(
+        `[adWorker] Kling Veo — model=${models.klingVeoModel}, ` +
+          `${klingRefs.length} reference image(s), native audio`
+      );
+
+      const klingBuffer = await klingVeoGenerateVideo(
+        models.klingVeoModel,
+        klingPrompt,
+        klingRefs,
+        klingKey,
+        (pct) => job.updateProgress(20 + Math.floor(pct * 0.6))
+      );
+
+      await job.updateProgress(80);
+
+      const klingDataUri = `data:video/mp4;base64,${klingBuffer.toString('base64')}`;
+      const uploadResult = await cloudinary.uploader.upload(klingDataUri, {
         resource_type: 'video',
         folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
         public_id: adId,

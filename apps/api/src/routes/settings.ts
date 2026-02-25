@@ -13,6 +13,7 @@ const SECRET_KEYS = new Set([
   'fal_key',
   'huggingface_api_key',
   'gemini_api_key',
+  'kling_api_key',
 ]);
 
 function maskValue(key: string, value: string): string {
@@ -60,6 +61,7 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
     'fal_key',
     'huggingface_api_key',
     'gemini_api_key',
+    'kling_api_key',
     // AI model overrides — worker reads these from DB, falls back to code defaults
     'tts_model',
     'dialogue_model',
@@ -68,6 +70,7 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
     'i2i_model',
     'veo_model',
     'gemini_tts_model',
+    'kling_veo_model',
     // Platform OAuth credentials
     'tiktok_client_id',
     'tiktok_client_secret',
