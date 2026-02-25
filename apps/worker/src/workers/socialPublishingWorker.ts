@@ -11,7 +11,35 @@ import { publishToFacebook } from './platforms/facebook';
 import { publishToSnapchat } from './platforms/snapchat';
 
 async function processSocialJob(job: Job<SocialPublishingJobPayload>) {
-  const { publishJobId, userId, platform, generatedVideoUrl, caption, hashtags } = job.data;
+  const { publishJobId } = job.data;
+
+  // Load the full publish job (and related ad + token) from DB
+  const publishJob = await prisma.publishJob.findUnique({
+    where: { id: publishJobId },
+    include: {
+      ad: { select: { generatedVideoUrl: true } },
+      platformToken: {
+        select: {
+          id: true,
+          platform: true,
+          accessToken: true,
+          refreshToken: true,
+          expiresAt: true,
+          platformUserId: true,
+          platformUsername: true,
+          isExpired: true,
+          userId: true,
+        },
+      },
+    },
+  });
+
+  if (!publishJob) {
+    throw new Error(`PublishJob ${publishJobId} not found`);
+  }
+
+  const { userId, platform, caption, hashtags } = publishJob;
+  const generatedVideoUrl = publishJob.ad?.generatedVideoUrl ?? null;
 
   console.log(`[publishWorker] Publishing job ${publishJobId} to ${platform}`);
 
@@ -21,12 +49,10 @@ async function processSocialJob(job: Job<SocialPublishingJobPayload>) {
   });
 
   try {
-    // Fetch platform token
-    const token = await prisma.platformToken.findFirst({
-      where: { userId, platform, isExpired: false },
-    });
+    // Use the already-loaded platform token
+    const token = publishJob.platformToken;
 
-    if (!token) {
+    if (!token || token.isExpired) {
       throw new Error(`No valid token for platform: ${platform}`);
     }
 
