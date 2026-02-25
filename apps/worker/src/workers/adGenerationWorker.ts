@@ -394,7 +394,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
                 resource_type: 'video', // Cloudinary uses 'video' type for audio files
                 folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
                 public_id: `${adId}_audio`,
-                format: 'mp3',
+                format: 'wav',
               },
               (err, result) => {
                 if (err || !result) reject(err ?? new Error('Cloudinary audio upload failed'));

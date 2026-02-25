@@ -9,7 +9,30 @@
  *          AI_PROVIDER=dashscope
  */
 
+import WS from 'ws';
+
 const DASHSCOPE_BASE = 'https://dashscope-intl.aliyuncs.com';
+const DASHSCOPE_WS_REALTIME = 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime';
+
+/** Build a minimal 44-byte WAV header for raw PCM16 mono audio. */
+function buildWavBuffer(pcm: Buffer, sampleRate = 24000): Buffer {
+  const header = Buffer.alloc(44);
+  const byteRate = sampleRate * 2; // mono 16-bit = 2 bytes/sample
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcm.byteLength, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16); // PCM chunk size
+  header.writeUInt16LE(1, 20); // PCM format
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(2, 32); // block align
+  header.writeUInt16LE(16, 34); // bits per sample
+  header.write('data', 36);
+  header.writeUInt32LE(pcm.byteLength, 40);
+  return Buffer.concat([header, pcm]);
+}
 
 interface DashScopeTaskResponse {
   output: {
@@ -215,69 +238,104 @@ export async function dashscopePollImageTask(
  * @param model   TTS model, e.g. "cosyvoice-v3-plus"
  * @param apiKey  DashScope API key
  */
+/**
+ * Generate speech using Qwen TTS Realtime (OpenAI-realtime-compatible WebSocket).
+ * Returns a WAV buffer (PCM 16-bit 24 kHz mono) ready for Cloudinary upload.
+ *
+ * Protocol:
+ *   1. Connect  wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model={model}
+ *   2. Receive  session.created
+ *   3. Send     session.update  { voice, output_audio_format: "pcm16" }
+ *   4. Send     conversation.item.create  { role:user, content:[{type:input_text,text}] }
+ *   5. Send     response.create
+ *   6. Collect  response.audio.delta  (base64 PCM16 chunks)
+ *   7. Resolve  on response.done  → wrap chunks in WAV header
+ */
 export async function dashscopeTextToSpeech(
   text: string,
   voice: string,
   model: string,
   apiKey: string
 ): Promise<Buffer> {
-  const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text2audio/synthesis`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'X-DashScope-SSE': 'enable',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify({
-      model,
-      input: { text },
-      parameters: { voice, format: 'mp3', sample_rate: 22050 },
-    }),
-  });
+  const wsUrl = `${DASHSCOPE_WS_REALTIME}?model=${encodeURIComponent(model)}`;
 
-  if (!res.ok || !res.body) {
-    const txt = await res.text();
-    throw new Error(`DashScope TTS error ${res.status}: ${txt}`);
-  }
+  return new Promise<Buffer>((resolve, reject) => {
+    const ws = new WS(wsUrl, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'OpenAI-Beta': 'realtime=v1',
+      },
+    });
 
-  const audioChunks: Buffer[] = [];
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let lineBuffer = '';
-  let streamFinished = false;
+    const pcmChunks: Buffer[] = [];
+    let sessionReady = false;
 
-  while (!streamFinished) {
-    // eslint-disable-next-line no-await-in-loop
-    const { done, value } = await reader.read();
-    if (done) {
-      streamFinished = true;
-      break;
-    }
+    const fail = (msg: string) => {
+      ws.terminate();
+      reject(new Error(msg));
+    };
 
-    lineBuffer += decoder.decode(value, { stream: true });
-    const lines = lineBuffer.split('\n');
-    lineBuffer = lines.pop() ?? '';
+    ws.on('error', (err: Error) => reject(err));
 
-    for (const line of lines) {
-      if (!line.startsWith('data:')) continue;
-      const raw = line.slice(5).trim();
-      if (!raw || raw === '[DONE]') continue;
+    ws.on('message', (raw: WS.RawData) => {
+      let msg: { type?: string; session?: unknown; delta?: string; error?: { message?: string } };
       try {
-        const evt = JSON.parse(raw) as { output?: { audio?: string; finish_reason?: string } };
-        const b64 = evt?.output?.audio;
-        if (b64) audioChunks.push(Buffer.from(b64, 'base64'));
+        msg = JSON.parse(raw.toString()) as typeof msg;
       } catch {
-        // skip malformed events
+        return;
       }
-    }
-  }
 
-  if (audioChunks.length === 0) {
-    throw new Error('DashScope TTS returned no audio data');
-  }
+      const type = msg.type ?? '';
+      console.log(`[TTS] event: ${type}`);
 
-  return Buffer.concat(audioChunks);
+      if (type === 'error') {
+        fail(`Qwen TTS error: ${msg.error?.message ?? raw.toString().slice(0, 200)}`);
+      } else if (type === 'session.created') {
+        // Configure voice + PCM output format
+        ws.send(
+          JSON.stringify({
+            type: 'session.update',
+            session: { voice, output_audio_format: 'pcm16', turn_detection: null },
+          })
+        );
+        sessionReady = true;
+
+        // Submit the text item and trigger response
+        ws.send(
+          JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text }],
+            },
+          })
+        );
+        ws.send(JSON.stringify({ type: 'response.create' }));
+      } else if (type === 'response.audio.delta') {
+        if (msg.delta) pcmChunks.push(Buffer.from(msg.delta, 'base64'));
+      } else if (type === 'response.done') {
+        ws.close();
+        if (pcmChunks.length === 0) {
+          reject(new Error('Qwen TTS returned no audio data'));
+        } else {
+          resolve(buildWavBuffer(Buffer.concat(pcmChunks)));
+        }
+      }
+    });
+
+    ws.on('close', (code: number, reason: Buffer) => {
+      if (pcmChunks.length > 0) {
+        resolve(buildWavBuffer(Buffer.concat(pcmChunks)));
+      } else if (sessionReady) {
+        reject(
+          new Error(`TTS WebSocket closed early (${code}): ${reason.toString().slice(0, 100)}`)
+        );
+      } else {
+        reject(new Error(`TTS WebSocket closed before session started (${code})`));
+      }
+    });
+  });
 }
 
 // ─── Qwen dialogue auto-generation ───────────────────────────────────────────
