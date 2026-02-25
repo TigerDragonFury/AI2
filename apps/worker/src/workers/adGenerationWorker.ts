@@ -79,8 +79,6 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
   console.log(`[adWorker] Generating ad ${adId}`);
 
-  await prisma.ad.update({ where: { id: adId }, data: { status: 'processing' } });
-
   // Load all required fields from DB — the job payload only carries adId
   const ad = await prisma.ad.findUnique({
     where: { id: adId },
@@ -92,7 +90,14 @@ async function processAdJob(job: Job<{ adId: string }>) {
       user: { select: { companyName: true, brandVoicePreset: true, brandVoiceCustom: true } },
     },
   });
-  if (!ad) throw new Error(`Ad ${adId} not found in database`);
+
+  // If the ad was deleted while queued, discard the job silently (no retry)
+  if (!ad) {
+    console.warn(`[adWorker] Ad ${adId} not found — was likely deleted. Skipping job.`);
+    return;
+  }
+
+  await prisma.ad.update({ where: { id: adId }, data: { status: 'processing' } });
 
   // Load model IDs from DB (admin-configurable) with code-default fallbacks.
   // Cached 60 s — no restart needed when changed via admin UI.
