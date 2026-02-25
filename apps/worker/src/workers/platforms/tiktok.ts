@@ -8,8 +8,8 @@ interface PublishParams {
 }
 
 const TIKTOK_API = 'https://open.tiktokapis.com/v2';
-// TikTok max chunk size is 64 MB; use 10 MB to stay well under Render's memory
-const CHUNK_SIZE = 10 * 1024 * 1024;
+const MIN_CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB — TikTok minimum
+const MAX_CHUNK_SIZE = 64 * 1024 * 1024; // 64 MB — TikTok maximum
 
 /**
  * Publish a video to TikTok using Content Posting API v2 — FILE_UPLOAD source.
@@ -28,7 +28,11 @@ export async function publishToTikTok({
   if (!videoResponse.ok) throw new Error('Failed to download generated video from Cloudinary');
   const videoBuffer = await videoResponse.arrayBuffer();
   const videoSize = videoBuffer.byteLength;
-  const totalChunks = Math.ceil(videoSize / CHUNK_SIZE);
+
+  // Always upload as a single chunk.
+  // chunk_size must be in [5 MB, 64 MB] per TikTok docs — clamp to valid range.
+  const chunkSize = Math.min(Math.max(videoSize, MIN_CHUNK_SIZE), MAX_CHUNK_SIZE);
+  const totalChunks = 1;
 
   // ── Step 2: Init upload (FILE_UPLOAD) ─────────────────────────────────────
   const initResponse = await fetch(`${TIKTOK_API}/post/publish/video/init/`, {
@@ -48,8 +52,7 @@ export async function publishToTikTok({
       source_info: {
         source: 'FILE_UPLOAD',
         video_size: videoSize,
-        // When video fits in one chunk, chunk_size must equal video_size exactly
-        chunk_size: totalChunks === 1 ? videoSize : CHUNK_SIZE,
+        chunk_size: chunkSize,
         total_chunk_count: totalChunks,
       },
     }),
@@ -70,8 +73,8 @@ export async function publishToTikTok({
 
   // ── Step 3: Upload chunks ─────────────────────────────────────────────────
   for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE;
-    const end = Math.min(start + CHUNK_SIZE, videoSize);
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize, videoSize);
     const chunk = videoBuffer.slice(start, end);
 
     const uploadRes = await fetch(uploadUrl, {
