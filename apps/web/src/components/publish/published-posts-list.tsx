@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import { RefreshCw, ExternalLink, Send, CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 
@@ -49,7 +50,8 @@ const STATUS_CONFIG: Record<string, { icon: React.ElementType; label: string; cl
 
 const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then((r) => r.json());
+const fetcher = (url: string, token: string) =>
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
 
 function buildPostUrl(platform: string, postId: string | null): string | null {
   if (!postId) return null;
@@ -68,9 +70,12 @@ function buildPostUrl(platform: string, postId: string | null): string | null {
 }
 
 export function PublishedPostsList() {
+  const { data: session } = useSession();
+  const token = session?.accessToken as string | undefined;
+
   const { data, mutate } = useSWR<{ data: PublishJobWithAd[]; success: boolean }>(
-    `${NEXT_PUBLIC_API_URL}/api/publish`,
-    fetcher,
+    token ? `${NEXT_PUBLIC_API_URL}/api/publish` : null,
+    (url: string) => fetcher(url, token!),
     {
       refreshInterval: (d) => {
         const jobs = d?.data ?? [];
@@ -94,7 +99,7 @@ export function PublishedPostsList() {
   async function handleRetry(id: string) {
     await fetch(`${NEXT_PUBLIC_API_URL}/api/publish/${id}/retry`, {
       method: 'POST',
-      credentials: 'include',
+      headers: { Authorization: `Bearer ${token}` },
     });
     mutate();
   }
