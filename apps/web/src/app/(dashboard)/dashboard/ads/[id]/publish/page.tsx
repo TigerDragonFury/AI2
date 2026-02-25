@@ -12,7 +12,11 @@ export default async function PublishAdPage({ params }: { params: { id: string }
   if (!session?.accessToken) redirect('/login');
 
   // Fetch ad from API
-  const res = await fetch(`${process.env.API_BASE_URL}/api/ads/${params.id}`, {
+  const apiBase =
+    process.env.API_BASE_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    'https://adavatar-api.onrender.com';
+  const res = await fetch(`${apiBase}/api/ads/${params.id}`, {
     headers: { Authorization: `Bearer ${session.accessToken}` },
     cache: 'no-store',
   });
