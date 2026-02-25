@@ -9,8 +9,6 @@
  *          AI_PROVIDER=dashscope
  */
 
-import WS from 'ws';
-
 const DASHSCOPE_BASE = 'https://dashscope-intl.aliyuncs.com';
 
 interface DashScopeTaskResponse {
@@ -43,7 +41,6 @@ export async function dashscopeSubmitVideoTask(
   const res = await fetch(
     `${DASHSCOPE_BASE}/api/v1/services/aigc/video-generation/video-synthesis`,
     {
-      signal: AbortSignal.timeout(30_000),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -79,7 +76,6 @@ export async function dashscopePollVideoTask(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
 
     const res = await fetch(`${DASHSCOPE_BASE}/api/v1/tasks/${taskId}`, {
-      signal: AbortSignal.timeout(15_000),
       headers: { Authorization: `Bearer ${apiKey}` },
     });
 
@@ -90,9 +86,6 @@ export async function dashscopePollVideoTask(
 
     const data = (await res.json()) as DashScopeTaskStatus;
     const status = data?.output?.task_status;
-    console.log(
-      `[DashScope] video task ${taskId} — status: ${status} (attempt ${i + 1}/${maxAttempts})`
-    );
 
     if (status === 'SUCCEEDED') {
       const videoUrl = data?.output?.video_url;
@@ -141,7 +134,6 @@ export async function dashscopeSubmitImageEditTask(
   apiKey: string
 ): Promise<string> {
   const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/image2image/image-synthesis`, {
-    signal: AbortSignal.timeout(30_000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -174,7 +166,7 @@ export async function dashscopeSubmitImageEditTask(
 export async function dashscopePollImageTask(
   taskId: string,
   apiKey: string,
-  maxWaitMs = 300_000 // 5 min — allow for DashScope queue delays
+  maxWaitMs = 180_000 // 3 min — image gen is faster than video
 ): Promise<string> {
   const POLL_INTERVAL = 5000;
   const maxAttempts = Math.ceil(maxWaitMs / POLL_INTERVAL);
@@ -183,7 +175,6 @@ export async function dashscopePollImageTask(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
 
     const res = await fetch(`${DASHSCOPE_BASE}/api/v1/tasks/${taskId}`, {
-      signal: AbortSignal.timeout(15_000),
       headers: { Authorization: `Bearer ${apiKey}` },
     });
 
@@ -194,9 +185,6 @@ export async function dashscopePollImageTask(
 
     const data = (await res.json()) as DashScopeImageTaskStatus;
     const status = data?.output?.task_status;
-    console.log(
-      `[DashScope] image task ${taskId} — status: ${status} (attempt ${i + 1}/${maxAttempts})`
-    );
 
     if (status === 'SUCCEEDED') {
       const imageUrl = data?.output?.results?.[0]?.url;
@@ -233,95 +221,63 @@ export async function dashscopeTextToSpeech(
   model: string,
   apiKey: string
 ): Promise<Buffer> {
-  const DASHSCOPE_WS = 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference';
-  const taskId = crypto.randomUUID();
-
-  return new Promise<Buffer>((resolve, reject) => {
-    const ws = new WS(DASHSCOPE_WS, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-
-    const audioChunks: Buffer[] = [];
-    let taskStarted = false;
-
-    const fail = (msg: string) => {
-      ws.terminate();
-      reject(new Error(msg));
-    };
-
-    ws.on('error', (err: Error) => reject(err));
-
-    ws.on('open', () => {
-      // Send run-task to initialise the TTS session
-      ws.send(
-        JSON.stringify({
-          header: { action: 'run-task', task_id: taskId, streaming: 'duplex' },
-          payload: {
-            task_group: 'audio',
-            task: 'tts',
-            function: 'SpeechSynthesizer',
-            model,
-            parameters: { text_type: 'PlainText', voice, format: 'mp3', volume: 50, rate: 1.0 },
-            input: {},
-          },
-        })
-      );
-    });
-
-    ws.on('message', (raw: WS.RawData) => {
-      let msg: {
-        header?: { event?: string; error_code?: string; error_message?: string };
-        payload?: { output?: { audio?: string } };
-      };
-      try {
-        msg = JSON.parse(raw.toString()) as typeof msg;
-      } catch {
-        return;
-      }
-
-      const event = msg.header?.event;
-
-      if (event === 'task-started') {
-        taskStarted = true;
-        // Send the text then signal end-of-input
-        ws.send(
-          JSON.stringify({
-            header: { action: 'continue-task', task_id: taskId, streaming: 'duplex' },
-            payload: { input: { text } },
-          })
-        );
-        ws.send(
-          JSON.stringify({
-            header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
-            payload: { input: {} },
-          })
-        );
-      } else if (event === 'result-generated') {
-        const b64 = msg.payload?.output?.audio;
-        if (b64) audioChunks.push(Buffer.from(b64, 'base64'));
-      } else if (event === 'task-finished') {
-        ws.close();
-        if (audioChunks.length === 0) {
-          reject(new Error('DashScope TTS returned no audio data'));
-        } else {
-          resolve(Buffer.concat(audioChunks));
-        }
-      } else if (event === 'task-failed') {
-        fail(`DashScope TTS task failed: ${msg.header?.error_message ?? JSON.stringify(msg)}`);
-      } else if (!taskStarted) {
-        // unexpected early message
-        console.warn('[TTS] unexpected message before task-started:', raw.toString().slice(0, 200));
-      }
-    });
-
-    ws.on('close', (code: number, reason: Buffer) => {
-      if (audioChunks.length > 0) {
-        resolve(Buffer.concat(audioChunks));
-      } else {
-        reject(new Error(`TTS WebSocket closed early (${code}): ${reason.toString()}`));
-      }
-    });
+  const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text2audio/synthesis`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'X-DashScope-SSE': 'enable',
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify({
+      model,
+      input: { text },
+      parameters: { voice, format: 'mp3', sample_rate: 22050 },
+    }),
   });
+
+  if (!res.ok || !res.body) {
+    const txt = await res.text();
+    throw new Error(`DashScope TTS error ${res.status}: ${txt}`);
+  }
+
+  const audioChunks: Buffer[] = [];
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let lineBuffer = '';
+  let streamFinished = false;
+
+  while (!streamFinished) {
+    // eslint-disable-next-line no-await-in-loop
+    const { done, value } = await reader.read();
+    if (done) {
+      streamFinished = true;
+      break;
+    }
+
+    lineBuffer += decoder.decode(value, { stream: true });
+    const lines = lineBuffer.split('\n');
+    lineBuffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === '[DONE]') continue;
+      try {
+        const evt = JSON.parse(raw) as { output?: { audio?: string; finish_reason?: string } };
+        const b64 = evt?.output?.audio;
+        if (b64) audioChunks.push(Buffer.from(b64, 'base64'));
+      } catch {
+        // skip malformed events
+      }
+    }
+  }
+
+  if (audioChunks.length === 0) {
+    throw new Error('DashScope TTS returned no audio data');
+  }
+
+  return Buffer.concat(audioChunks);
 }
 
 // ─── Qwen dialogue auto-generation ───────────────────────────────────────────
@@ -424,7 +380,6 @@ export async function dashscopeGenerateDialogue(
     `IMPORTANT: Your entire response must be written in ${langName} script only — do NOT use English.`;
 
   const res = await fetch(`${DASHSCOPE_BASE}/api/v1/services/aigc/text-generation/generation`, {
-    signal: AbortSignal.timeout(45_000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -502,7 +457,6 @@ export async function dashscopeAnalyzeProductImage(
   const res = await fetch(
     `${DASHSCOPE_BASE}/api/v1/services/aigc/multimodal-generation/generation`,
     {
-      signal: AbortSignal.timeout(30_000),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
