@@ -48,7 +48,18 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
   const { key, value } = parsed.data;
 
   // Restrict to known keys to avoid arbitrary data storage
-  const ALLOWED_KEYS = ['ai_provider', 'alibaba_api_key', 'fal_key', 'huggingface_api_key'];
+  const ALLOWED_KEYS = [
+    'ai_provider',
+    'alibaba_api_key',
+    'fal_key',
+    'huggingface_api_key',
+    // AI model overrides — worker reads these from DB, falls back to code defaults
+    'tts_model',
+    'dialogue_model',
+    'vision_model',
+    'i2v_model',
+    'i2i_model',
+  ];
   if (!ALLOWED_KEYS.includes(key)) {
     return next(
       createError(`Unknown key "${key}". Allowed: ${ALLOWED_KEYS.join(', ')}`, 400, 'UNKNOWN_KEY')

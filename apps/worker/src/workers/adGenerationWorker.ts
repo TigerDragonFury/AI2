@@ -16,7 +16,7 @@ import {
   dashscopeAnalyzeProductImage,
   type DialogueContext,
 } from '../lib/dashscope';
-import { detectProvider, getProviderKey } from '../lib/settings';
+import { detectProvider, getProviderKey, getModelConfig } from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
 
 cloudinary.config({
@@ -94,6 +94,10 @@ async function processAdJob(job: Job<{ adId: string }>) {
   });
   if (!ad) throw new Error(`Ad ${adId} not found in database`);
 
+  // Load model IDs from DB (admin-configurable) with code-default fallbacks.
+  // Cached 60 s — no restart needed when changed via admin UI.
+  const models = await getModelConfig();
+
   const userId = ad.userId;
   const productImageUrls: string[] = ad.product?.imageUrls ?? [];
   const avatarVideoUrl: string = ad.avatar?.avatarVideoUrl ?? '';
@@ -122,7 +126,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
           ad.product?.name ?? 'this product',
           ad.avatar?.name ?? 'the creator',
           adDuration,
-          AI_MODELS.DASHSCOPE_VISION_LLM,
+          models.visionLlm,
           aliKeyForVL
         );
         console.log(`[adWorker] Qwen VL scene: "${sceneDescription}"`);
@@ -297,7 +301,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
         const safeProductUrl = fitCloudinaryDimensions(productImageUrl, 384, 4000);
 
         const imgTaskId = await dashscopeSubmitImageEditTask(
-          AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
+          models.i2iModel,
           [safeAvatarUrl, safeProductUrl],
           compositePrompt,
           sizeStr,
@@ -351,7 +355,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
             ad.rawPrompt,
             dialogueLanguage,
             adDuration,
-            AI_MODELS.DASHSCOPE_DIALOGUE_LLM,
+            models.dialogueLlm,
             aliKey,
             dialogueCtx
           );
@@ -372,7 +376,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
           const audioBuffer = await dashscopeTextToSpeech(
             dialogueText,
             voice,
-            AI_MODELS.DASHSCOPE_TTS,
+            models.ttsModel,
             aliKey
           );
 
@@ -429,7 +433,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       }
 
       const taskId = await dashscopeSubmitVideoTask(
-        AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
+        models.i2vModel,
         videoInput,
         { resolution: '720P', duration: adDuration, prompt_extend: true },
         aliKey

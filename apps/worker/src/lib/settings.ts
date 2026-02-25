@@ -1,4 +1,5 @@
 import { prisma } from './prisma';
+import { AI_MODELS } from '@adavatar/config';
 
 /**
  * In-memory cache for app settings so we don't hammer the DB on every job.
@@ -88,4 +89,26 @@ export async function getProviderKey(provider: string): Promise<string | undefin
     default:
       return undefined;
   }
+}
+
+/**
+ * Get the active AI model IDs for each pipeline step.
+ * DB values (set via admin settings UI) take priority; code defaults are the fallback.
+ * Cached for 60 s alongside all other settings.
+ */
+export async function getModelConfig() {
+  const [ttsModel, dialogueLlm, visionLlm, i2vModel, i2iModel] = await Promise.all([
+    getAppSetting('tts_model'),
+    getAppSetting('dialogue_model'),
+    getAppSetting('vision_model'),
+    getAppSetting('i2v_model'),
+    getAppSetting('i2i_model'),
+  ]);
+  return {
+    ttsModel: ttsModel ?? AI_MODELS.DASHSCOPE_TTS,
+    dialogueLlm: dialogueLlm ?? AI_MODELS.DASHSCOPE_DIALOGUE_LLM,
+    visionLlm: visionLlm ?? AI_MODELS.DASHSCOPE_VISION_LLM,
+    i2vModel: i2vModel ?? AI_MODELS.DASHSCOPE_AD_GENERATION_I2V,
+    i2iModel: i2iModel ?? AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
+  };
 }

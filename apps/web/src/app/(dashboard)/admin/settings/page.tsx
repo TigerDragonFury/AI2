@@ -22,6 +22,7 @@ const SETTING_META: Record<
   string,
   { label: string; description: string; type: 'select' | 'password'; options?: string[] }
 > = {
+  // ── AI Provider + API Keys ────────────────────────────────────────────────
   ai_provider: {
     label: 'AI Provider',
     description: 'Which AI service processes avatar animations and ad videos.',
@@ -44,6 +45,38 @@ const SETTING_META: Record<
     description:
       'Required when provider is "huggingface". Needs a Pro subscription for LivePortrait model access.',
     type: 'password',
+  },
+  // ── DashScope Model Overrides ─────────────────────────────────────────────
+  tts_model: {
+    label: 'TTS Model',
+    description:
+      'CosyVoice model for voiceover synthesis. v3-plus = higher quality & cloning fidelity; v3-flash = faster & cheaper.',
+    type: 'select',
+    options: ['cosyvoice-v3-plus', 'cosyvoice-v3-flash'],
+  },
+  dialogue_model: {
+    label: 'Dialogue / Script LLM',
+    description: 'Qwen model used to auto-generate ad dialogue scripts.',
+    type: 'select',
+    options: ['qwen-plus', 'qwen-turbo', 'qwen-max'],
+  },
+  vision_model: {
+    label: 'Vision LLM (Auto-prompt)',
+    description: 'Qwen-VL model used to analyse product images and generate scene descriptions.',
+    type: 'select',
+    options: ['qwen-vl-plus', 'qwen-vl-max'],
+  },
+  i2v_model: {
+    label: 'Image-to-Video Model',
+    description: 'Wan model used to animate the composite image into the final ad video.',
+    type: 'select',
+    options: ['wan2.6-i2v', 'wan2.1-i2v-turbo'],
+  },
+  i2i_model: {
+    label: 'Image Composite Model',
+    description: 'Wan model used in Step 1 to fuse the avatar photo + product image.',
+    type: 'select',
+    options: ['wan2.5-i2i-preview'],
   },
 };
 
@@ -138,10 +171,10 @@ export default function AdminSettingsPage() {
       <div className="flex items-center gap-3">
         <Bot className="h-6 w-6 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold">AI Provider Settings</h1>
+          <h1 className="text-2xl font-bold">AI Configuration</h1>
           <p className="text-sm text-muted-foreground">
-            Configure which AI service processes videos and store API keys in the database. Values
-            here override environment variables — no redeploy needed.
+            Configure the AI provider, API keys, and model overrides. Values stored here override
+            environment variables — no redeploy needed. Worker picks up changes within 60 seconds.
           </p>
         </div>
       </div>
@@ -203,7 +236,7 @@ export default function AdminSettingsPage() {
                     value={draft}
                     onChange={(e) => setDrafts((p) => ({ ...p, [key]: e.target.value }))}
                   >
-                    <option value="">— select provider —</option>
+                    <option value="">— select —</option>
                     {meta.options?.map((opt) => (
                       <option key={opt} value={opt}>
                         {opt}
