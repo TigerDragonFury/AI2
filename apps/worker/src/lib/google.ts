@@ -19,6 +19,33 @@ const MAX_POLLS = 120; // 20 minutes max
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
+/**
+ * Retry a Google API call up to `maxAttempts` times on 429 rate-limit errors.
+ * Uses exponential backoff: 10s, 20s, 40s…
+ * Note: this helps with per-minute RPM limits but NOT daily quota exhaustion.
+ */
+async function retryOn429<T>(fn: () => Promise<T>, maxAttempts = 4): Promise<T> {
+  let delay = 10_000;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = (err as Error)?.message ?? '';
+      const is429 = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
+      if (is429 && attempt < maxAttempts) {
+        console.warn(
+          `[Google] 429 rate limit hit — retrying in ${delay / 1000}s (attempt ${attempt}/${maxAttempts})`
+        );
+        await new Promise((r) => setTimeout(r, delay));
+        delay *= 2;
+      } else {
+        throw err;
+      }
+    }
+  }
+  /* unreachable */ throw new Error('retryOn429: exhausted');
+}
+
 /** Build a 44-byte WAV header around raw PCM16 mono audio. */
 function buildWavBuffer(pcm: Buffer, sampleRate = 24000): Buffer {
   const header = Buffer.alloc(44);
@@ -162,7 +189,8 @@ export async function veoGenerateVideo(
   );
 
   // Submit via SDK (handles correct serialization of referenceImages)
-  let operation = await client.models.generateVideos({ model, prompt, config });
+  // Retry up to 3 times on transient 429s (per-minute rate limits)
+  let operation = await retryOn429(() => client.models.generateVideos({ model, prompt, config }));
   console.log(`[Veo] Operation: ${operation.name}`);
 
   // Poll until complete using SDK
