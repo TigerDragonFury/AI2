@@ -38,10 +38,14 @@ async function processSocialJob(job: Job<SocialPublishingJobPayload>) {
 
   try {
     // Use the already-loaded platform token
-    const token = publishJob.platformToken;
+    const token = publishJob.platformToken as import('@adavatar/types').PlatformToken;
 
     if (!token || token.isExpired) {
       throw new Error(`No valid token for platform: ${platform}`);
+    }
+
+    if (!generatedVideoUrl) {
+      throw new Error(`Ad ${publishJob.adId} has no generated video URL`);
     }
 
     await job.updateProgress(10);
