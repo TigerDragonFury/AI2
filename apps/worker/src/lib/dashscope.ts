@@ -229,15 +229,19 @@ export async function dashscopePollImageTask(
  *   7. Resolve  on response.done  → wrap chunks in WAV header
  */
 /** Map BCP-47 language codes to Qwen3-TTS language_type strings. */
+// Supported language_type values per Qwen3-TTS-Flash docs.
+// Arabic, French, Korean are not supported — fall back to 'Auto' (auto-detect).
 const LANG_TYPE: Record<string, string> = {
   en: 'English',
   zh: 'Chinese',
-  ar: 'Arabic',
-  fr: 'French',
   es: 'Spanish',
   de: 'German',
   ja: 'Japanese',
-  ko: 'Korean',
+  it: 'Italian',
+  pt: 'Portuguese',
+  ar: 'Auto',
+  fr: 'Auto',
+  ko: 'Auto',
 };
 
 /**
@@ -255,7 +259,7 @@ export async function dashscopeTextToSpeech(
   apiKey: string,
   language = 'en'
 ): Promise<Buffer> {
-  const language_type = LANG_TYPE[language] ?? 'English';
+  const language_type = LANG_TYPE[language] ?? 'Auto';
 
   const res = await fetch(
     `${DASHSCOPE_BASE}/api/v1/services/aigc/multimodal-generation/generation`,
