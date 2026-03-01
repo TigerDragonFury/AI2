@@ -136,7 +136,10 @@ export async function getModelConfig() {
     i2iModel: i2iModel ?? AI_MODELS.DASHSCOPE_AD_IMAGE_EDIT,
     veoModel: veoModel ?? AI_MODELS.VEO_AD_GENERATION,
     geminiTtsModel: geminiTtsModel ?? AI_MODELS.GEMINI_TTS,
-    klingVeoModel: klingVeoModel ?? AI_MODELS.KLING_VEO_FAST,
+    // Default to Sora 2 I2V — matches the Hollywood UGC workflow out of the box
+    klingVeoModel: klingVeoModel ?? AI_MODELS.KIE_SORA2_I2V,
+    // cinematicPromptModel is only used for the Google direct path (gemini-2.0-flash works there).
+    // For the kling path, the worker uses kieVisionModel instead (gemini-2.5-flash via Kie.ai).
     cinematicPromptModel: cinematicPromptModel ?? AI_MODELS.GEMINI_CINEMATIC_PROMPT,
     kieVisionModel: kieVisionModel ?? AI_MODELS.KIE_VISION_MODEL,
   };

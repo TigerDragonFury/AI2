@@ -297,13 +297,15 @@ async function processAdJob(job: Job<{ adId: string }>) {
         if (klingKey) {
           try {
             console.log('[adWorker] Cinematic prompt: expanding with Kie.ai Gemini...');
+            // Use kieVisionModel (gemini-2.5-flash via Kie.ai) — NOT cinematicPromptModel
+            // which defaults to gemini-2.0-flash, a model Kie.ai does not support.
             enhancedPrompt = await kieCinematicPrompt(
               enhancedPrompt,
               ad.avatar?.name ?? 'the creator',
               ad.product?.name ?? 'this product',
               bv,
               adDuration,
-              models.cinematicPromptModel,
+              models.kieVisionModel,
               klingKey
             );
             console.log(`[adWorker] Cinematic prompt ready (${enhancedPrompt.length} chars)`);
