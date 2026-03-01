@@ -75,6 +75,11 @@ export const AI_MODELS = {
   DASHSCOPE_DIALOGUE_LLM: 'qwen-plus', // Qwen text model for auto-generating dialogue scripts
   DASHSCOPE_VISION_LLM: 'qwen-vl-plus', // Qwen VL multimodal model for product image analysis
 
+  // Kie.ai Chat / Vision model (Gemini 2.5 Flash via api.kie.ai) — used for product image
+  // analysis and cinematic prompt expansion when provider is 'kling'.
+  // Same API key as video generation — no separate Google key needed.
+  KIE_VISION_MODEL: 'gemini-2.5-flash',
+
   // Cinematic timeline prompt expansion (Gemini text model)
   GEMINI_CINEMATIC_PROMPT: 'gemini-2.0-flash', // Fast & cheap — only generates text, no vision needed
 

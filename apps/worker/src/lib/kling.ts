@@ -286,6 +286,133 @@ async function submitUnified(
   return json.data.taskId;
 }
 
+// ─── Kie.ai Chat / Vision API (Gemini models routed through Kie.ai) ───────────
+
+interface KieChatResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+}
+
+/**
+ * Analyse a product image using Kie.ai's Gemini 2.5 Flash vision model.
+ * Same API key as video generation — no extra credentials needed.
+ * Mirrors dashscopeAnalyzeProductImage() for the kling provider path.
+ */
+export async function kieAnalyzeProductImage(
+  imageUrl: string,
+  productName: string,
+  avatarName: string,
+  durationSec: number,
+  model: string,
+  apiKey: string,
+  ctx?: { brandVoice?: string; productDescription?: string }
+): Promise<string> {
+  const brandToneHint = ctx?.brandVoice
+    ? ` The brand tone is: ${ctx.brandVoice}. Let this influence the mood and energy of the scene description.`
+    : '';
+  const productDetailHint = ctx?.productDescription
+    ? ` Additional product detail: ${ctx.productDescription}.`
+    : '';
+
+  const instruction =
+    `You are an expert UGC ad director. Study this product image carefully. ` +
+    `Write a single vivid scene description (1-2 sentences, max 180 characters) for a ${durationSec}-second UGC video ad. ` +
+    `The creator named "${avatarName || 'the creator'}" is showcasing "${productName}". ` +
+    `Describe: what action the creator is performing with the product, their expression, and the mood. ` +
+    `Start with an action verb. Be specific about the product based on what you see in the image.` +
+    brandToneHint +
+    productDetailHint +
+    ` Output ONLY the scene description — no titles, no explanations.`;
+
+  const res = await fetch(`${KLING_BASE}/${model}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: instruction },
+            { type: 'image_url', image_url: { url: imageUrl } },
+          ],
+        },
+      ],
+      stream: false,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) throw new Error(`Kie.ai vision error ${res.status}: ${await res.text()}`);
+
+  const json = (await res.json()) as KieChatResponse;
+  const text = json.choices?.[0]?.message?.content?.trim();
+  if (!text)
+    throw new Error(`Kie.ai vision returned no text: ${JSON.stringify(json).slice(0, 200)}`);
+  console.log(`[Kie.ai Vision] Scene: "${text.slice(0, 120)}"`);
+  return text;
+}
+
+/**
+ * Generate a cinematic timeline prompt (Hook→Context→Climax→Resolution) using
+ * Kie.ai's Gemini 2.5 Flash. Same API key as video generation.
+ * Mirrors geminiCinematicPrompt() in google.ts for the kling provider path.
+ */
+export async function kieCinematicPrompt(
+  sceneDescription: string,
+  avatarName: string,
+  productName: string,
+  brandVoice: string | undefined,
+  durationSec: number,
+  model: string,
+  apiKey: string
+): Promise<string> {
+  const t1 = Math.round(durationSec * 0.25);
+  const t2 = Math.round(durationSec * 0.5);
+  const t3 = Math.round(durationSec * 0.75);
+
+  const systemInstruction =
+    `You are an expert film director and UGC video ad specialist. ` +
+    `Transform the provided scene description into a single cohesive video generation prompt ` +
+    `structured as a cinematic timeline. The output must be plain text — NO markdown, NO bullet ` +
+    `list symbols, NO headers. Write it as a single block a video model can parse directly.\n\n` +
+    `Required structure (fill in the brackets — do NOT include the bracket labels in output):\n` +
+    `[VIBE: energetic/luxury/playful/warm/authoritative] [FORMAT: portrait 9:16] ` +
+    `[GENRE: UGC creator-style cinematic ad] — ` +
+    `[0–${t1}s hook: opening action + camera motion + lighting mood] — ` +
+    `[${t1}–${t2}s context: creator introduces or interacts with product] — ` +
+    `[${t2}–${t3}s climax: key benefit close-up, product hero shot, emotion peak] — ` +
+    `[${t3}–${durationSec}s resolution: authentic reaction, soft CTA or brand close] — ` +
+    `[scene narrative: 1–2 sentence total description tying everything together]`;
+
+  const userContent =
+    `Product: ${productName}\n` +
+    `Creator/Avatar: ${avatarName}\n` +
+    (brandVoice ? `Brand voice: ${brandVoice}\n` : '') +
+    `Duration: ${durationSec} seconds\n` +
+    `Scene description: ${sceneDescription}\n\n` +
+    `Write the cinematic timeline prompt now.`;
+
+  const res = await fetch(`${KLING_BASE}/${model}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages: [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: userContent },
+      ],
+      stream: false,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) throw new Error(`Kie.ai cinematic prompt error ${res.status}: ${await res.text()}`);
+
+  const json = (await res.json()) as KieChatResponse;
+  const text = json.choices?.[0]?.message?.content?.trim();
+  if (!text) throw new Error('Kie.ai cinematic prompt returned no text');
+  console.log(`[Kie.ai Cinematic] Generated timeline prompt (${text.length} chars)`);
+  return text;
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**

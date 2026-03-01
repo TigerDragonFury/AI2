@@ -117,20 +117,32 @@ const SETTING_META: Record<
       'veo3',
     ],
   },
+  kie_vision_model: {
+    label: 'Kie.ai Vision / Cinematic Model',
+    description:
+      'Gemini model used via kie.ai for product image analysis (auto-prompt) and cinematic prompt expansion. Uses the same Kie.ai API key — no separate Google key needed.',
+    type: 'select',
+    options: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash'],
+  },
   // ── Cinematic Timeline Prompt ─────────────────────────────────────────────────
   cinematic_prompt_enabled: {
     label: 'Cinematic Prompt Expansion',
     description:
-      'When enabled, Gemini expands the scene description into a Hollywood-style timeline script (Hook → Context → Climax → Resolution) before sending to Veo. Improves output quality noticeably. Uses ~1–2 Gemini Flash calls per ad.',
+      'When enabled, a Gemini model expands the scene description into a Hollywood-style timeline script (Hook → Context → Climax → Resolution) before sending to the video model. When using kie.ai provider, runs entirely through your Kie.ai key — no separate Google key needed.',
     type: 'select',
     options: ['true', 'false'],
   },
   cinematic_prompt_model: {
     label: 'Cinematic Prompt Model',
     description:
-      'Gemini model used to generate the cinematic timeline script. gemini-2.0-flash is fast and cheap (default). Requires a Gemini API key.',
+      'Model used to generate the cinematic timeline script. For kie.ai provider, set to gemini-2.5-flash (routed via Kie.ai same key). For Google provider, set to gemini-2.0-flash (direct Gemini API).',
     type: 'select',
-    options: ['gemini-2.0-flash', 'gemini-2.5-flash-preview-05-20', 'gemini-2.5-pro-preview-05-06'],
+    options: [
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-2.5-flash-preview-05-20',
+      'gemini-2.5-pro-preview-05-06',
+    ],
   },
   // ── Storage & Google Drive Backup ─────────────────────────────────────────
   storage_backup: {
@@ -221,6 +233,7 @@ const SECTIONS = [
       'veo_model',
       'gemini_tts_model',
       'kling_veo_model',
+      'kie_vision_model',
     ],
   },
   {
@@ -259,6 +272,8 @@ const SECTIONS = [
 const PROVIDER_DEFAULT_MODELS: Record<string, Partial<Record<string, string>>> = {
   kling: {
     kling_veo_model: 'sora-2-pro-image-to-video', // Best Kie.ai model — Sora 2 I2V
+    kie_vision_model: 'gemini-2.5-flash', // Vision + cinematic via Kie.ai (same API key)
+    cinematic_prompt_model: 'gemini-2.5-flash', // Routed through Kie.ai for kling provider
     dialogue_model: 'qwen-plus',
     vision_model: 'qwen-vl-plus',
   },

@@ -115,6 +115,7 @@ export async function getModelConfig() {
     geminiTtsModel,
     klingVeoModel,
     cinematicPromptModel,
+    kieVisionModel,
   ] = await Promise.all([
     getAppSetting('tts_model'),
     getAppSetting('dialogue_model'),
@@ -125,6 +126,7 @@ export async function getModelConfig() {
     getAppSetting('gemini_tts_model'),
     getAppSetting('kling_veo_model'),
     getAppSetting('cinematic_prompt_model'),
+    getAppSetting('kie_vision_model'),
   ]);
   return {
     ttsModel: ttsModel ?? AI_MODELS.DASHSCOPE_TTS,
@@ -136,6 +138,7 @@ export async function getModelConfig() {
     geminiTtsModel: geminiTtsModel ?? AI_MODELS.GEMINI_TTS,
     klingVeoModel: klingVeoModel ?? AI_MODELS.KLING_VEO_FAST,
     cinematicPromptModel: cinematicPromptModel ?? AI_MODELS.GEMINI_CINEMATIC_PROMPT,
+    kieVisionModel: kieVisionModel ?? AI_MODELS.KIE_VISION_MODEL,
   };
 }
 

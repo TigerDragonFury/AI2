@@ -72,6 +72,7 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
     'veo_model',
     'gemini_tts_model',
     'kling_veo_model',
+    'kie_vision_model', // Kie.ai vision/cinematic model (default: gemini-2.5-flash)
     // Cinematic timeline prompt
     'cinematic_prompt_enabled',
     'cinematic_prompt_model',

@@ -22,7 +22,7 @@ import {
   geminiCinematicPrompt,
   uploadToGoogleDrive,
 } from '../lib/google';
-import { klingVeoGenerateVideo } from '../lib/kling';
+import { klingVeoGenerateVideo, kieAnalyzeProductImage, kieCinematicPrompt } from '../lib/kling';
 import {
   detectProvider,
   getProviderKey,
@@ -144,53 +144,109 @@ async function processAdJob(job: Job<{ adId: string }>) {
   };
   const aspectRatioStr = aspectRatioReverseMap[ad.aspectRatio as string] ?? '9:16';
 
-  // ── Auto-prompt: scan product image with Qwen VL ──────────────────────────
+  // Detect provider early — needed for both auto-prompt (vision) and cinematic prompt
+  const provider = await detectProvider();
+
+  // ── Auto-prompt: scan product image with vision model ─────────────────────
   // When autoPrompt=true the API saved rawPrompt='' and enhancedPrompt=null.
   // We generate the scene description here and enhance it before use.
   let enhancedPrompt: string = ad.enhancedPrompt ?? ad.rawPrompt;
 
   if (ad.autoPrompt && !ad.enhancedPrompt) {
-    const aliKeyForVL = await getProviderKey('dashscope');
-    if (aliKeyForVL && productImageUrls[0]) {
-      try {
-        console.log('[adWorker] Auto-prompt: analysing product image with Qwen VL...');
-        const sceneDescription = await dashscopeAnalyzeProductImage(
-          fitCloudinaryDimensions(productImageUrls[0], 384, 2000),
-          ad.product?.name ?? 'this product',
-          ad.avatar?.name ?? 'the creator',
-          adDuration,
-          models.visionLlm,
-          aliKeyForVL,
-          dialogueCtx
-        );
-        console.log(`[adWorker] Qwen VL scene: "${sceneDescription}"`);
-        enhancedPrompt = enhanceAdPrompt(sceneDescription, aspectRatioStr, {
-          avatarName: ad.avatar?.name ?? '',
-          productName: ad.product?.name ?? '',
-          duration: adDuration,
-        });
-        // Persist so re-runs don't call Qwen VL again
-        await prisma.ad.update({
-          where: { id: adId },
-          data: { rawPrompt: sceneDescription, enhancedPrompt },
-        });
-      } catch (vlErr) {
-        console.warn(
-          '[adWorker] Qwen VL auto-prompt failed — using fallback prompt:',
-          (vlErr as Error).message
-        );
-        enhancedPrompt = enhanceAdPrompt(
-          `${ad.product?.name ?? 'Product'} showcase by ${ad.avatar?.name ?? 'creator'}`,
-          aspectRatioStr,
-          {
+    if (!productImageUrls[0]) {
+      console.warn('[adWorker] Auto-prompt skipped: no product image');
+    } else if (provider === 'kling') {
+      // ── Kie.ai path: Gemini 2.5 Flash vision via Kie.ai (same API key, no Google key needed)
+      const klingKey = await getProviderKey('kling');
+      if (klingKey) {
+        try {
+          console.log(
+            '[adWorker] Auto-prompt: analysing product image with Kie.ai Gemini Vision...'
+          );
+          const sceneDescription = await kieAnalyzeProductImage(
+            productImageUrls[0],
+            ad.product?.name ?? 'this product',
+            ad.avatar?.name ?? 'the creator',
+            adDuration,
+            models.kieVisionModel,
+            klingKey,
+            {
+              brandVoice: dialogueCtx.brandVoice,
+              productDescription: dialogueCtx.productDescription,
+            }
+          );
+          console.log(`[adWorker] Kie.ai Vision scene: "${sceneDescription}"`);
+          enhancedPrompt = enhanceAdPrompt(sceneDescription, aspectRatioStr, {
             avatarName: ad.avatar?.name ?? '',
             productName: ad.product?.name ?? '',
             duration: adDuration,
-          }
-        );
+          });
+          await prisma.ad.update({
+            where: { id: adId },
+            data: { rawPrompt: sceneDescription, enhancedPrompt },
+          });
+        } catch (vlErr) {
+          console.warn(
+            '[adWorker] Kie.ai Vision auto-prompt failed — using fallback:',
+            (vlErr as Error).message
+          );
+          enhancedPrompt = enhanceAdPrompt(
+            `${ad.product?.name ?? 'Product'} showcase by ${ad.avatar?.name ?? 'creator'}`,
+            aspectRatioStr,
+            {
+              avatarName: ad.avatar?.name ?? '',
+              productName: ad.product?.name ?? '',
+              duration: adDuration,
+            }
+          );
+        }
+      } else {
+        console.warn('[adWorker] Auto-prompt skipped: no Kie.ai API key configured');
       }
     } else {
-      console.warn('[adWorker] Auto-prompt skipped: missing API key or product image');
+      // ── DashScope path: Qwen VL (dashscope / google / fal / huggingface)
+      const aliKeyForVL = await getProviderKey('dashscope');
+      if (aliKeyForVL) {
+        try {
+          console.log('[adWorker] Auto-prompt: analysing product image with Qwen VL...');
+          const sceneDescription = await dashscopeAnalyzeProductImage(
+            fitCloudinaryDimensions(productImageUrls[0], 384, 2000),
+            ad.product?.name ?? 'this product',
+            ad.avatar?.name ?? 'the creator',
+            adDuration,
+            models.visionLlm,
+            aliKeyForVL,
+            dialogueCtx
+          );
+          console.log(`[adWorker] Qwen VL scene: "${sceneDescription}"`);
+          enhancedPrompt = enhanceAdPrompt(sceneDescription, aspectRatioStr, {
+            avatarName: ad.avatar?.name ?? '',
+            productName: ad.product?.name ?? '',
+            duration: adDuration,
+          });
+          // Persist so re-runs don't call Qwen VL again
+          await prisma.ad.update({
+            where: { id: adId },
+            data: { rawPrompt: sceneDescription, enhancedPrompt },
+          });
+        } catch (vlErr) {
+          console.warn(
+            '[adWorker] Qwen VL auto-prompt failed — using fallback prompt:',
+            (vlErr as Error).message
+          );
+          enhancedPrompt = enhanceAdPrompt(
+            `${ad.product?.name ?? 'Product'} showcase by ${ad.avatar?.name ?? 'creator'}`,
+            aspectRatioStr,
+            {
+              avatarName: ad.avatar?.name ?? '',
+              productName: ad.product?.name ?? '',
+              duration: adDuration,
+            }
+          );
+        }
+      } else {
+        console.warn('[adWorker] Auto-prompt skipped: missing DashScope API key or product image');
+      }
     }
   }
 
@@ -220,42 +276,73 @@ async function processAdJob(job: Job<{ adId: string }>) {
   try {
     await job.updateProgress(10);
 
-    const provider = await detectProvider();
     console.log(`[adWorker] Using AI provider: ${provider}`);
 
-    // ── Cinematic timeline prompt expansion (optional, Gemini-powered) ───────
-    // When cinematic_prompt_enabled=true, Gemini rewrites the scene description
-    // into a structured Hook → Context → Climax → Resolution director's brief
-    // before passing to Veo.  Falls back to the original prompt on any error.
+    // ── Cinematic timeline prompt expansion (optional) ───────────────────────
+    // When cinematic_prompt_enabled=true, a Gemini model rewrites the scene
+    // description into a structured Hook → Context → Climax → Resolution brief.
+    // Provider routing:
+    //   kling   → Kie.ai Gemini chat endpoint (same API key, no Google key needed)
+    //   google  → Direct Gemini API (gemini_api_key)
+    //   others  → Skipped (can enable by also setting a gemini_api_key)
     const cinematicEnabled = await getAppSetting('cinematic_prompt_enabled');
     if (cinematicEnabled === 'true') {
-      const geminiKey = await getProviderKey('google');
-      if (geminiKey) {
-        try {
-          console.log('[adWorker] Cinematic prompt: expanding with Gemini...');
-          const brandVoiceParts2 = [ad.user?.brandVoicePreset, ad.user?.brandVoiceCustom].filter(
-            Boolean
-          );
-          enhancedPrompt = await geminiCinematicPrompt(
-            enhancedPrompt,
-            ad.avatar?.name ?? 'the creator',
-            ad.product?.name ?? 'this product',
-            brandVoiceParts2.length ? brandVoiceParts2.join(', ') : undefined,
-            adDuration,
-            models.cinematicPromptModel,
-            geminiKey
-          );
-          console.log(`[adWorker] Cinematic prompt ready (${enhancedPrompt.length} chars)`);
-          // Persist so re-runs skip the expansion step
-          await prisma.ad.update({ where: { id: adId }, data: { enhancedPrompt } });
-        } catch (cpErr) {
-          console.warn(
-            '[adWorker] Cinematic prompt expansion failed — using original prompt:',
-            (cpErr as Error).message
-          );
+      const brandVoiceParts2 = [ad.user?.brandVoicePreset, ad.user?.brandVoiceCustom].filter(
+        Boolean
+      );
+      const bv = brandVoiceParts2.length ? brandVoiceParts2.join(', ') : undefined;
+
+      if (provider === 'kling') {
+        const klingKey = await getProviderKey('kling');
+        if (klingKey) {
+          try {
+            console.log('[adWorker] Cinematic prompt: expanding with Kie.ai Gemini...');
+            enhancedPrompt = await kieCinematicPrompt(
+              enhancedPrompt,
+              ad.avatar?.name ?? 'the creator',
+              ad.product?.name ?? 'this product',
+              bv,
+              adDuration,
+              models.cinematicPromptModel,
+              klingKey
+            );
+            console.log(`[adWorker] Cinematic prompt ready (${enhancedPrompt.length} chars)`);
+            await prisma.ad.update({ where: { id: adId }, data: { enhancedPrompt } });
+          } catch (cpErr) {
+            console.warn(
+              '[adWorker] Kie.ai cinematic prompt failed — using original:',
+              (cpErr as Error).message
+            );
+          }
+        } else {
+          console.warn('[adWorker] Cinematic prompt skipped: no Kie.ai API key configured');
         }
       } else {
-        console.warn('[adWorker] Cinematic prompt skipped: no Gemini API key configured');
+        // Google provider path (direct Gemini API key)
+        const geminiKey = await getProviderKey('google');
+        if (geminiKey) {
+          try {
+            console.log('[adWorker] Cinematic prompt: expanding with Gemini...');
+            enhancedPrompt = await geminiCinematicPrompt(
+              enhancedPrompt,
+              ad.avatar?.name ?? 'the creator',
+              ad.product?.name ?? 'this product',
+              bv,
+              adDuration,
+              models.cinematicPromptModel,
+              geminiKey
+            );
+            console.log(`[adWorker] Cinematic prompt ready (${enhancedPrompt.length} chars)`);
+            await prisma.ad.update({ where: { id: adId }, data: { enhancedPrompt } });
+          } catch (cpErr) {
+            console.warn(
+              '[adWorker] Cinematic prompt expansion failed — using original prompt:',
+              (cpErr as Error).message
+            );
+          }
+        } else {
+          console.warn('[adWorker] Cinematic prompt skipped: no Gemini API key configured');
+        }
       }
     }
 
