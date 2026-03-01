@@ -62,6 +62,15 @@ export const AI_MODELS = {
   KLING_VEO_FAST: 'veo3_fast', // Veo 3.1 Fast — cost-efficient, supports REFERENCE_2_VIDEO
   KLING_VEO_QUALITY: 'veo3', // Veo 3.1 Quality — highest fidelity, image-to-video only
 
+  // Kie.ai Unified API — Sora 2, Kling 3.0/2.1 (POST /api/v1/jobs/createTask)
+  KIE_SORA2_I2V: 'sora-2-pro-image-to-video', // Sora 2 Pro — image-to-video (up to 3 refs)
+  KIE_SORA2_T2V: 'sora-2-pro-text-to-video', // Sora 2 Pro — text-to-video
+  KIE_KLING_V3: 'kling/v3.0', // Kling 3.0 — latest generation
+  KIE_KLING_V21_PRO: 'kling/v2-1-pro', // Kling 2.1 Pro — high quality
+  KIE_KLING_V21_STD: 'kling/v2-1-standard', // Kling 2.1 Standard — faster/cheaper
+  KIE_WAN_26: 'wan/2-2-a14b', // Wan 2.6 via Kie.ai
+  KIE_ELEVENLABS_TTS: 'elevenlabs-v3', // ElevenLabs V3 TTS via Kie.ai
+
   DASHSCOPE_TTS: 'qwen3-tts-flash', // Qwen3-TTS-Flash — REST multimodal-generation endpoint
   DASHSCOPE_DIALOGUE_LLM: 'qwen-plus', // Qwen text model for auto-generating dialogue scripts
   DASHSCOPE_VISION_LLM: 'qwen-vl-plus', // Qwen VL multimodal model for product image analysis

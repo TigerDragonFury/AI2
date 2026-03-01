@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { useSession } from 'next-auth/react';
-import { Save, Trash2, Loader2, Bot, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Save, Trash2, Loader2, Bot, Eye, EyeOff, RefreshCw, Zap } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const fetcher = (url: string, token: string) =>
@@ -103,11 +103,19 @@ const SETTING_META: Record<
     options: ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'],
   },
   kling_veo_model: {
-    label: 'Kling Veo Model',
+    label: 'Kie.ai Video Model',
     description:
-      'Veo model used via kie.ai. veo3_fast supports REFERENCE_2_VIDEO (preserves subject appearance); veo3 is higher quality but image-to-video only.',
+      'Video model used via kie.ai. Sora 2 I2V is recommended (reference images + cinematic quality). Kling 3.0 is great for short clips. Veo3 Fast supports REFERENCE_2_VIDEO mode.',
     type: 'select',
-    options: ['veo3_fast', 'veo3'],
+    options: [
+      'sora-2-pro-image-to-video',
+      'sora-2-pro-text-to-video',
+      'kling/v3.0',
+      'kling/v2-1-pro',
+      'kling/v2-1-standard',
+      'veo3_fast',
+      'veo3',
+    ],
   },
   // ── Cinematic Timeline Prompt ─────────────────────────────────────────────────
   cinematic_prompt_enabled: {
@@ -243,6 +251,42 @@ const SECTIONS = [
   },
 ] as const;
 
+/**
+ * Recommended model defaults per provider.
+ * When the user picks an AI Provider, all AI Model Override drafts are pre-filled
+ * with these values so there's no risk of a provider/model mismatch.
+ */
+const PROVIDER_DEFAULT_MODELS: Record<string, Partial<Record<string, string>>> = {
+  kling: {
+    kling_veo_model: 'sora-2-pro-image-to-video', // Best Kie.ai model — Sora 2 I2V
+    dialogue_model: 'qwen-plus',
+    vision_model: 'qwen-vl-plus',
+  },
+  google: {
+    veo_model: 'veo-3.1-generate-preview',
+    gemini_tts_model: 'gemini-2.5-flash-preview-tts',
+    dialogue_model: 'qwen-plus',
+    vision_model: 'qwen-vl-plus',
+  },
+  dashscope: {
+    tts_model: 'qwen3-tts-flash',
+    dialogue_model: 'qwen-plus',
+    vision_model: 'qwen-vl-plus',
+    i2v_model: 'wan2.6-i2v',
+    i2i_model: 'wan2.5-i2i-preview',
+  },
+  fal: {
+    dialogue_model: 'qwen-plus',
+    vision_model: 'qwen-vl-plus',
+    i2v_model: 'wan2.6-i2v',
+  },
+  huggingface: {
+    dialogue_model: 'qwen-plus',
+    vision_model: 'qwen-vl-plus',
+    i2v_model: 'wan2.6-i2v',
+  },
+};
+
 export default function AdminSettingsPage() {
   const { data: session } = useSession();
   const token = session?.accessToken ?? '';
@@ -257,6 +301,7 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [autoFilledProvider, setAutoFilledProvider] = useState<string | null>(null);
 
   const settings = data?.data ?? [];
 
@@ -266,6 +311,17 @@ export default function AdminSettingsPage() {
 
   function getDraft(key: string): string {
     return drafts[key] ?? '';
+  }
+
+  /** Central draft handler — auto-fills model overrides when ai_provider changes. */
+  function handleDraftChange(key: string, value: string) {
+    if (key === 'ai_provider' && value && PROVIDER_DEFAULT_MODELS[value]) {
+      setDrafts((p) => ({ ...p, [key]: value, ...PROVIDER_DEFAULT_MODELS[value] }));
+      setAutoFilledProvider(value);
+    } else {
+      setDrafts((p) => ({ ...p, [key]: value }));
+      if (key === 'ai_provider') setAutoFilledProvider(null);
+    }
   }
 
   async function handleSave(key: string) {
@@ -355,6 +411,24 @@ export default function AdminSettingsPage() {
               <p className="text-xs text-muted-foreground mt-0.5">{section.description}</p>
             )}
           </div>
+
+          {/* Auto-fill notice for AI Model Overrides */}
+          {section.title === 'AI Model Overrides' && autoFilledProvider && (
+            <div className="flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-600 dark:text-blue-400">
+              <Zap className="h-4 w-4 shrink-0" />
+              <span>
+                Models auto-filled for <strong>{autoFilledProvider}</strong>. Review the values
+                below and hit <strong>Save</strong> on each field to apply.
+              </span>
+              <button
+                className="ml-auto text-xs underline opacity-70 hover:opacity-100"
+                onClick={() => setAutoFilledProvider(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {(section.keys as unknown as string[]).map((key) => {
             const meta = SETTING_META[key];
             const stored = getStored(key);
@@ -402,7 +476,7 @@ export default function AdminSettingsPage() {
                     <select
                       className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       value={draft}
-                      onChange={(e) => setDrafts((p) => ({ ...p, [key]: e.target.value }))}
+                      onChange={(e) => handleDraftChange(key, e.target.value)}
                     >
                       <option value="">— select —</option>
                       {meta.options?.map((opt) => (
