@@ -358,7 +358,7 @@ export async function kieAnalyzeProductImage(
       stream: false,
       include_thoughts: false, // disable thinking tokens so content is a plain string
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(90_000), // 90s — vision calls are slower than text-only
   });
 
   if (!res.ok) throw new Error(`Kie.ai vision error ${res.status}: ${await res.text()}`);
