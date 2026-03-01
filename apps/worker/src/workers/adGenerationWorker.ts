@@ -906,9 +906,15 @@ export const adGenerationWorker = new Worker<{ adId: string }>(
     drainDelay: 5_000,
     // Stalled-job check: every 5 min instead of every 30 s (10× fewer background commands).
     stalledInterval: 300_000,
-    // Extend lock to 5 min — renewal runs at lockDuration/2 so every 2.5 min per active job
-    // instead of every 15 s.  Safe because jobs complete well within 5 min normally.
-    lockDuration: 300_000,
+    // Lock duration: 30 minutes — well beyond the 12-min max poll + upload time.
+    // Renewal fires at lockDuration/2 (every 15 min), so a job running for ~15 min
+    // still gets one renewal.  The generous window means a Redis blip during the
+    // polling loop won't accidentally expire the lock and trigger a stall.
+    lockDuration: 1_800_000,
+    // Allow up to 3 stall events before moving a job to failed.
+    // Render deploys kill the process mid-poll; the new instance resumes via
+    // the Redis kieTaskId key — so each stall is a safe, resumable restart.
+    maxStalledCount: 3,
     skipVersionCheck: true,
   }
 );
