@@ -160,7 +160,8 @@ async function submitKlingVeoLegacy(
 
 // ─── Unified API path ────────────────────────────────────────────────────────
 
-async function unifiedPoll(
+/** Poll a Kie.ai task until done and return the video URL. */
+export async function klingVeoPollTask(
   taskId: string,
   apiKey: string,
   onProgress?: (pct: number) => void
@@ -254,7 +255,8 @@ function buildUnifiedInput(
   return hasImages ? { prompt, image_url: validUrls[0] } : { prompt };
 }
 
-async function submitUnified(
+/** Submit a video-generation task to Kie.ai and return the taskId. */
+export async function klingVeoSubmitTask(
   model: string,
   prompt: string,
   imageUrls: string[],
@@ -464,8 +466,8 @@ export async function klingVeoGenerateVideo(
     const taskId = await submitKlingVeoLegacy(model, prompt, imageUrls, apiKey);
     videoUrl = await klingVeoPoll(taskId, apiKey, onProgress);
   } else {
-    const taskId = await submitUnified(model, prompt, imageUrls, apiKey);
-    videoUrl = await unifiedPoll(taskId, apiKey, onProgress);
+    const taskId = await klingVeoSubmitTask(model, prompt, imageUrls, apiKey);
+    videoUrl = await klingVeoPollTask(taskId, apiKey, onProgress);
   }
 
   return downloadVideo(videoUrl);

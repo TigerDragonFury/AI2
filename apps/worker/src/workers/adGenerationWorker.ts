@@ -22,7 +22,12 @@ import {
   geminiCinematicPrompt,
   uploadToGoogleDrive,
 } from '../lib/google';
-import { klingVeoGenerateVideo, kieAnalyzeProductImage, kieCinematicPrompt } from '../lib/kling';
+import {
+  klingVeoSubmitTask,
+  klingVeoPollTask,
+  kieAnalyzeProductImage,
+  kieCinematicPrompt,
+} from '../lib/kling';
 import {
   detectProvider,
   getProviderKey,
@@ -709,16 +714,41 @@ async function processAdJob(job: Job<{ adId: string }>) {
           `${klingRefs.length} reference image(s), native audio`
       );
 
-      const klingBuffer = await klingVeoGenerateVideo(
-        models.klingVeoModel,
-        klingPrompt,
-        klingRefs,
-        klingKey,
-        (pct) => job.updateProgress(20 + Math.floor(pct * 0.6))
+      // ── Kie.ai task ID persistence (Redis) ─────────────────────────────────
+      // Store the taskId in Redis right after submission so that if this
+      // worker process is restarted mid-poll (e.g. Render redeploy), the
+      // retried job can RESUME polling the existing Kie.ai task instead of
+      // submitting a brand-new one (which wastes credits and discards the
+      // partially-completed generation).
+      const kieTaskKey = `kie:pendingTask:${adId}`;
+      let klingTaskId = await redisConnection.get(kieTaskKey);
+      if (klingTaskId) {
+        console.log(`[adWorker] Resuming existing Kie.ai task ${klingTaskId}`);
+      } else {
+        klingTaskId = await klingVeoSubmitTask(
+          models.klingVeoModel,
+          klingPrompt,
+          klingRefs,
+          klingKey
+        );
+        // TTL: 1 hour — longer than the 12-minute max poll window
+        await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 3600);
+      }
+
+      const klingVideoUrl = await klingVeoPollTask(klingTaskId, klingKey, (pct) =>
+        job.updateProgress(20 + Math.floor(pct * 0.6))
       );
+
+      // Task complete — remove the Redis resume key
+      await redisConnection.del(kieTaskKey);
 
       await job.updateProgress(80);
 
+      // Download and upload to Cloudinary
+      const klingRes = await fetch(klingVideoUrl, { signal: AbortSignal.timeout(120_000) });
+      if (!klingRes.ok)
+        throw new Error(`Kie.ai video download failed: ${klingRes.status}: ${klingVideoUrl}`);
+      const klingBuffer = Buffer.from(await klingRes.arrayBuffer());
       const klingDataUri = `data:video/mp4;base64,${klingBuffer.toString('base64')}`;
       const uploadResult = await cloudinary.uploader.upload(klingDataUri, {
         resource_type: 'video',
