@@ -288,8 +288,27 @@ async function submitUnified(
 
 // ─── Kie.ai Chat / Vision API (Gemini models routed through Kie.ai) ───────────
 
+// Kie.ai Gemini 2.5 Flash returns content as either:
+//   • a plain string (when include_thoughts=false)
+//   • an array of { type: 'thinking'|'text', text: string } (when thoughts are on)
+// We always set include_thoughts:false to get a plain string, but the helper
+// below handles both forms defensively.
+type KieContentPart = { type?: string; text?: string };
 interface KieChatResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{
+    message?: { content?: string | KieContentPart[] };
+  }>;
+}
+
+/** Extract the plain-text response from a Kie.ai chat completion. */
+function extractKieText(json: KieChatResponse): string | undefined {
+  const raw = json.choices?.[0]?.message?.content;
+  if (!raw) return undefined;
+  if (typeof raw === 'string') return raw.trim() || undefined;
+  // Array of content parts — find the first 'text' (non-thinking) part
+  const parts = Array.isArray(raw) ? raw : [];
+  const textPart = parts.find((p) => p.type === 'text' && p.text) ?? parts.find((p) => p.text);
+  return textPart?.text?.trim() || undefined;
 }
 
 /**
@@ -337,6 +356,7 @@ export async function kieAnalyzeProductImage(
         },
       ],
       stream: false,
+      include_thoughts: false, // disable thinking tokens so content is a plain string
     }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -344,7 +364,7 @@ export async function kieAnalyzeProductImage(
   if (!res.ok) throw new Error(`Kie.ai vision error ${res.status}: ${await res.text()}`);
 
   const json = (await res.json()) as KieChatResponse;
-  const text = json.choices?.[0]?.message?.content?.trim();
+  const text = extractKieText(json);
   if (!text)
     throw new Error(`Kie.ai vision returned no text: ${JSON.stringify(json).slice(0, 200)}`);
   console.log(`[Kie.ai Vision] Scene: "${text.slice(0, 120)}"`);
@@ -400,14 +420,15 @@ export async function kieCinematicPrompt(
         { role: 'user', content: userContent },
       ],
       stream: false,
+      include_thoughts: false, // disable thinking tokens so content is a plain string
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!res.ok) throw new Error(`Kie.ai cinematic prompt error ${res.status}: ${await res.text()}`);
 
   const json = (await res.json()) as KieChatResponse;
-  const text = json.choices?.[0]?.message?.content?.trim();
+  const text = extractKieText(json);
   if (!text) throw new Error('Kie.ai cinematic prompt returned no text');
   console.log(`[Kie.ai Cinematic] Generated timeline prompt (${text.length} chars)`);
   return text;
