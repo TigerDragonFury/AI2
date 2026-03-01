@@ -109,6 +109,41 @@ const SETTING_META: Record<
     type: 'select',
     options: ['veo3_fast', 'veo3'],
   },
+  // ── Cinematic Timeline Prompt ─────────────────────────────────────────────────
+  cinematic_prompt_enabled: {
+    label: 'Cinematic Prompt Expansion',
+    description:
+      'When enabled, Gemini expands the scene description into a Hollywood-style timeline script (Hook → Context → Climax → Resolution) before sending to Veo. Improves output quality noticeably. Uses ~1–2 Gemini Flash calls per ad.',
+    type: 'select',
+    options: ['true', 'false'],
+  },
+  cinematic_prompt_model: {
+    label: 'Cinematic Prompt Model',
+    description:
+      'Gemini model used to generate the cinematic timeline script. gemini-2.0-flash is fast and cheap (default). Requires a Gemini API key.',
+    type: 'select',
+    options: ['gemini-2.0-flash', 'gemini-2.5-flash-preview-05-20', 'gemini-2.5-pro-preview-05-06'],
+  },
+  // ── Storage & Google Drive Backup ─────────────────────────────────────────
+  storage_backup: {
+    label: 'Storage Backup Mode',
+    description:
+      'cloudinary_only — default, videos stored only in Cloudinary. cloudinary_gdrive — Cloudinary stays primary; every generated video is also backed up to your Drive folder.',
+    type: 'select',
+    options: ['cloudinary_only', 'cloudinary_gdrive'],
+  },
+  gdrive_folder_id: {
+    label: 'Google Drive Folder ID',
+    description:
+      'ID of the Drive folder where backup videos will be uploaded. Find it in the folder URL: drive.google.com/drive/folders/<FOLDER_ID>.',
+    type: 'password',
+  },
+  gdrive_refresh_token: {
+    label: 'Google Drive Refresh Token',
+    description:
+      'One-time setup: go to developers.google.com/oauthplayground → gear icon → "Use your own OAuth credentials" → paste your Google Client ID & Secret → select scope "drive.file" → authorise → Exchange code → copy the Refresh Token. Reuses your existing Google/YouTube client credentials.',
+    type: 'password',
+  },
   // ── Platform OAuth Credentials ─────────────────────────────────────────────────
   tiktok_client_id: {
     label: 'TikTok Client Key',
@@ -179,6 +214,18 @@ const SECTIONS = [
       'gemini_tts_model',
       'kling_veo_model',
     ],
+  },
+  {
+    title: 'Cinematic Prompt',
+    description:
+      'Optionally enrich every ad prompt with a Gemini-generated cinematic timeline script before sending to Veo. Inspired by Hollywood director briefs for higher-quality output.',
+    keys: ['cinematic_prompt_enabled', 'cinematic_prompt_model'],
+  },
+  {
+    title: 'Storage & Backup',
+    description:
+      'Cloudinary is always the primary video store. Optionally back up every generated ad video to a Google Drive folder for archive, download, or sharing.',
+    keys: ['storage_backup', 'gdrive_folder_id', 'gdrive_refresh_token'],
   },
   {
     title: 'Platform OAuth Credentials',

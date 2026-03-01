@@ -114,6 +114,7 @@ export async function getModelConfig() {
     veoModel,
     geminiTtsModel,
     klingVeoModel,
+    cinematicPromptModel,
   ] = await Promise.all([
     getAppSetting('tts_model'),
     getAppSetting('dialogue_model'),
@@ -123,6 +124,7 @@ export async function getModelConfig() {
     getAppSetting('veo_model'),
     getAppSetting('gemini_tts_model'),
     getAppSetting('kling_veo_model'),
+    getAppSetting('cinematic_prompt_model'),
   ]);
   return {
     ttsModel: ttsModel ?? AI_MODELS.DASHSCOPE_TTS,
@@ -133,5 +135,37 @@ export async function getModelConfig() {
     veoModel: veoModel ?? AI_MODELS.VEO_AD_GENERATION,
     geminiTtsModel: geminiTtsModel ?? AI_MODELS.GEMINI_TTS,
     klingVeoModel: klingVeoModel ?? AI_MODELS.KLING_VEO_FAST,
+    cinematicPromptModel: cinematicPromptModel ?? AI_MODELS.GEMINI_CINEMATIC_PROMPT,
+  };
+}
+
+/**
+ * Get storage/backup configuration.
+ * storage_backup: 'cloudinary_only' (default) | 'cloudinary_gdrive'
+ * gdrive_folder_id: target Drive folder ID
+ * gdrive_service_account_json: full service-account JSON string
+ */
+export async function getStorageConfig(): Promise<{
+  backup: string;
+  gdriveFolderId: string | undefined;
+  gdriveClientId: string | undefined;
+  gdriveClientSecret: string | undefined;
+  gdriveRefreshToken: string | undefined;
+}> {
+  const [backup, gdriveFolderId, gdriveClientId, gdriveClientSecret, gdriveRefreshToken] =
+    await Promise.all([
+      getAppSetting('storage_backup'),
+      getAppSetting('gdrive_folder_id'),
+      // Reuse the same Google OAuth credentials already configured for YouTube
+      getAppSetting('google_client_id', 'GOOGLE_CLIENT_ID'),
+      getAppSetting('google_client_secret', 'GOOGLE_CLIENT_SECRET'),
+      getAppSetting('gdrive_refresh_token'),
+    ]);
+  return {
+    backup: backup ?? 'cloudinary_only',
+    gdriveFolderId,
+    gdriveClientId,
+    gdriveClientSecret,
+    gdriveRefreshToken,
   };
 }

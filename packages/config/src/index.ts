@@ -66,6 +66,9 @@ export const AI_MODELS = {
   DASHSCOPE_DIALOGUE_LLM: 'qwen-plus', // Qwen text model for auto-generating dialogue scripts
   DASHSCOPE_VISION_LLM: 'qwen-vl-plus', // Qwen VL multimodal model for product image analysis
 
+  // Cinematic timeline prompt expansion (Gemini text model)
+  GEMINI_CINEMATIC_PROMPT: 'gemini-2.0-flash', // Fast & cheap — only generates text, no vision needed
+
   // Legacy aliases (kept for backward compat)
   AVATAR_ANIMATION: 'KwaiVGI/LivePortrait',
   AD_GENERATION_I2V: 'Wan-AI/Wan2.1-I2V-14B-480P', // legacy alias

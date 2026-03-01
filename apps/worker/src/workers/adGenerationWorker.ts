@@ -16,9 +16,20 @@ import {
   dashscopeAnalyzeProductImage,
   type DialogueContext,
 } from '../lib/dashscope';
-import { veoGenerateVideo, geminiTextToSpeech } from '../lib/google';
+import {
+  veoGenerateVideo,
+  geminiTextToSpeech,
+  geminiCinematicPrompt,
+  uploadToGoogleDrive,
+} from '../lib/google';
 import { klingVeoGenerateVideo } from '../lib/kling';
-import { detectProvider, getProviderKey, getModelConfig } from '../lib/settings';
+import {
+  detectProvider,
+  getProviderKey,
+  getModelConfig,
+  getStorageConfig,
+  getAppSetting,
+} from '../lib/settings';
 import { DASHSCOPE_NEGATIVE_PROMPT } from '@adavatar/utils';
 
 cloudinary.config({
@@ -211,6 +222,42 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
     const provider = await detectProvider();
     console.log(`[adWorker] Using AI provider: ${provider}`);
+
+    // ── Cinematic timeline prompt expansion (optional, Gemini-powered) ───────
+    // When cinematic_prompt_enabled=true, Gemini rewrites the scene description
+    // into a structured Hook → Context → Climax → Resolution director's brief
+    // before passing to Veo.  Falls back to the original prompt on any error.
+    const cinematicEnabled = await getAppSetting('cinematic_prompt_enabled');
+    if (cinematicEnabled === 'true') {
+      const geminiKey = await getProviderKey('google');
+      if (geminiKey) {
+        try {
+          console.log('[adWorker] Cinematic prompt: expanding with Gemini...');
+          const brandVoiceParts2 = [ad.user?.brandVoicePreset, ad.user?.brandVoiceCustom].filter(
+            Boolean
+          );
+          enhancedPrompt = await geminiCinematicPrompt(
+            enhancedPrompt,
+            ad.avatar?.name ?? 'the creator',
+            ad.product?.name ?? 'this product',
+            brandVoiceParts2.length ? brandVoiceParts2.join(', ') : undefined,
+            adDuration,
+            models.cinematicPromptModel,
+            geminiKey
+          );
+          console.log(`[adWorker] Cinematic prompt ready (${enhancedPrompt.length} chars)`);
+          // Persist so re-runs skip the expansion step
+          await prisma.ad.update({ where: { id: adId }, data: { enhancedPrompt } });
+        } catch (cpErr) {
+          console.warn(
+            '[adWorker] Cinematic prompt expansion failed — using original prompt:',
+            (cpErr as Error).message
+          );
+        }
+      } else {
+        console.warn('[adWorker] Cinematic prompt skipped: no Gemini API key configured');
+      }
+    }
 
     let generatedVideoUrl: string;
 
@@ -641,6 +688,42 @@ async function processAdJob(job: Job<{ adId: string }>) {
         public_id: adId,
       });
       generatedVideoUrl = uploadResult.secure_url;
+    }
+
+    // ── Google Drive backup (optional) ────────────────────────────────────────
+    // Runs after Cloudinary upload. Downloads the video from Cloudinary and
+    // mirrors it to the configured Drive folder. Failures are non-fatal — the
+    // ad is marked ready regardless.
+    const storageConfig = await getStorageConfig();
+    if (
+      storageConfig.backup === 'cloudinary_gdrive' &&
+      storageConfig.gdriveFolderId &&
+      storageConfig.gdriveClientId &&
+      storageConfig.gdriveClientSecret &&
+      storageConfig.gdriveRefreshToken
+    ) {
+      (async () => {
+        try {
+          console.log(`[adWorker] Drive backup: downloading from Cloudinary...`);
+          const dlRes = await fetch(generatedVideoUrl, { signal: AbortSignal.timeout(120_000) });
+          if (!dlRes.ok)
+            throw new Error(`Cloudinary fetch for Drive backup failed: ${dlRes.status}`);
+          const dlBuffer = Buffer.from(await dlRes.arrayBuffer());
+          const driveUrl = await uploadToGoogleDrive(
+            dlBuffer,
+            `ad_${adId}.mp4`,
+            storageConfig.gdriveFolderId!,
+            storageConfig.gdriveClientId!,
+            storageConfig.gdriveClientSecret!,
+            storageConfig.gdriveRefreshToken!
+          );
+          console.log(`[adWorker] Drive backup complete: ${driveUrl}`);
+          // Persist the Drive URL non-critically
+          await prisma.ad.update({ where: { id: adId }, data: { driveBackupUrl: driveUrl } });
+        } catch (driveErr) {
+          console.warn('[adWorker] Drive backup failed (non-fatal):', (driveErr as Error).message);
+        }
+      })();
     }
 
     await job.updateProgress(95);

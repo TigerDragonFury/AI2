@@ -14,6 +14,7 @@ const SECRET_KEYS = new Set([
   'huggingface_api_key',
   'gemini_api_key',
   'kling_api_key',
+  'gdrive_refresh_token',
 ]);
 
 function maskValue(key: string, value: string): string {
@@ -71,6 +72,13 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
     'veo_model',
     'gemini_tts_model',
     'kling_veo_model',
+    // Cinematic timeline prompt
+    'cinematic_prompt_enabled',
+    'cinematic_prompt_model',
+    // Storage & Google Drive backup
+    'storage_backup',
+    'gdrive_folder_id',
+    'gdrive_refresh_token',
     // Platform OAuth credentials
     'tiktok_client_id',
     'tiktok_client_secret',
