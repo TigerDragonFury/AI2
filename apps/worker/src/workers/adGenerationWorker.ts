@@ -160,6 +160,102 @@ async function processAdJob(job: Job<{ adId: string }>) {
   // Detect provider early — needed for both auto-prompt (vision) and cinematic prompt
   const provider = await detectProvider();
 
+  // ── Kie.ai resume fast-path ───────────────────────────────────────────────
+  // If a Redis key exists for this ad it means a Kie.ai task was already
+  // submitted (e.g. before a Render redeploy stalled the job). Skip all
+  // pre-processing (vision, cinematic, dialogue) and go straight to polling.
+  if (provider === 'kling') {
+    const kieTaskKey = `kie:pendingTask:${adId}`;
+    const existingTaskId = await redisConnection.get(kieTaskKey);
+    if (existingTaskId) {
+      console.log(
+        `[adWorker] Fast-path resume: polling existing Kie.ai task ${existingTaskId} (skipping vision/cinematic/dialogue)`
+      );
+      const klingKey = await getProviderKey('kling');
+      if (!klingKey) throw new Error('KLING_API_KEY not configured');
+
+      try {
+        await job.updateProgress(20);
+        const klingVideoUrl = await klingVeoPollTask(existingTaskId, klingKey, (pct) =>
+          job.updateProgress(20 + Math.floor(pct * 0.6))
+        );
+        await redisConnection.del(kieTaskKey);
+        await job.updateProgress(80);
+
+        const klingRes = await fetch(klingVideoUrl, { signal: AbortSignal.timeout(120_000) });
+        if (!klingRes.ok)
+          throw new Error(`Kie.ai video download failed: ${klingRes.status}: ${klingVideoUrl}`);
+        const klingBuf = Buffer.from(await klingRes.arrayBuffer());
+        const uploadResult = await cloudinary.uploader.upload(
+          `data:video/mp4;base64,${klingBuf.toString('base64')}`,
+          { resource_type: 'video', folder: CLOUDINARY_FOLDERS.GENERATED_ADS, public_id: adId }
+        );
+
+        // Logo overlay (same logic as main path)
+        const companyLogoUrl = ad.user?.companyLogoUrl;
+        let generatedVideoUrl = uploadResult.secure_url;
+        if (companyLogoUrl) {
+          try {
+            const logoPublicId = `company_logos/${ad.userId}`;
+            await cloudinary.uploader.upload(companyLogoUrl, {
+              public_id: logoPublicId,
+              overwrite: true,
+              invalidate: true,
+            });
+            generatedVideoUrl = cloudinary.url(uploadResult.public_id, {
+              resource_type: 'video',
+              secure: true,
+              transformation: [
+                {
+                  overlay: logoPublicId,
+                  width: 140,
+                  gravity: 'south_east',
+                  x: 20,
+                  y: 20,
+                  opacity: 85,
+                  crop: 'scale',
+                },
+                { flags: 'layer_apply' },
+              ],
+            });
+          } catch (logoErr) {
+            console.warn('[adWorker] Logo overlay failed (fast-path):', (logoErr as Error).message);
+          }
+        }
+
+        await job.updateProgress(95);
+        await prisma.ad.update({
+          where: { id: adId },
+          data: { generatedVideoUrl, status: 'ready' },
+        });
+        await prisma.notification.create({
+          data: {
+            userId: ad.userId,
+            event: 'ad_generation_complete',
+            message: 'Your ad video is ready.',
+            metadata: { adId },
+          },
+        });
+        const adUser = await prisma.user.findUnique({
+          where: { id: ad.userId },
+          select: { email: true, name: true },
+        });
+        if (adUser?.email)
+          sendAdReadyEmail(adUser.email, adUser.name ?? '', adId).catch(console.error);
+        await job.updateProgress(100);
+        console.log(`[adWorker] Ad ${adId} resumed and completed successfully`);
+        return;
+      } catch (resumeErr) {
+        // Polling failed — fall through to full re-generation
+        console.warn(
+          `[adWorker] Fast-path resume failed — falling through to full re-generation:`,
+          (resumeErr as Error).message
+        );
+        await redisConnection.del(kieTaskKey);
+      }
+    }
+  }
+
   // ── Auto-prompt: scan product image with vision model ─────────────────────
   // When autoPrompt=true the API saved rawPrompt='' and enhancedPrompt=null.
   // We generate the scene description here and enhance it before use.
