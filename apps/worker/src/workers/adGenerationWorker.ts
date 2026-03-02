@@ -123,6 +123,21 @@ async function processAdJob(job: Job<{ adId: string }>) {
     return;
   }
 
+  // ── Per-ad mutex ─────────────────────────────────────────────────────────
+  // Only one job may process a given adId at a time.  This prevents duplicate
+  // concurrent runs when BullMQ stall-recovery AND a manual admin Resume
+  // both activate jobs for the same adId simultaneously.
+  // TTL = 25 min (safety net if the process crashes before release).
+  const adMutexKey = `adMutex:${adId}`;
+  const gotLock = await redisConnection.set(adMutexKey, job.id ?? 'unknown', 'EX', 1500, 'NX');
+  if (!gotLock) {
+    const holder = await redisConnection.get(adMutexKey);
+    console.log(
+      `[adWorker] Skipping duplicate job — ad ${adId} already being processed by job ${holder}`
+    );
+    return;
+  }
+
   await prisma.ad.update({ where: { id: adId }, data: { status: 'processing' } });
 
   // Load model IDs from DB (admin-configurable) with code-default fallbacks.
@@ -247,6 +262,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
           sendAdReadyEmail(adUser.email, adUser.name ?? '', adId).catch(console.error);
         await job.updateProgress(100);
         console.log(`[adWorker] Ad ${adId} resumed and completed successfully`);
+        await redisConnection.del(adMutexKey);
         return;
       } catch (resumeErr) {
         // Polling failed — fall through to full re-generation.
@@ -1067,6 +1083,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
     await job.updateProgress(100);
     console.log(`[adWorker] Ad ${adId} generated successfully`);
+    await redisConnection.del(adMutexKey);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error(`[adWorker] Failed to generate ad ${adId}: ${message}`);
@@ -1085,6 +1102,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
       },
     });
 
+    await redisConnection.del(adMutexKey).catch(console.error);
     throw err;
   }
 }
