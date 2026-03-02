@@ -218,37 +218,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
           { resource_type: 'video', folder: CLOUDINARY_FOLDERS.GENERATED_ADS, public_id: adId }
         );
 
-        // Logo overlay (same logic as main path)
-        const companyLogoUrl = ad.user?.companyLogoUrl;
-        let generatedVideoUrl = uploadResult.secure_url;
-        if (companyLogoUrl) {
-          try {
-            const logoPublicId = `company_logos/${ad.userId}`;
-            await cloudinary.uploader.upload(companyLogoUrl, {
-              public_id: logoPublicId,
-              overwrite: true,
-              invalidate: true,
-            });
-            generatedVideoUrl = cloudinary.url(uploadResult.public_id, {
-              resource_type: 'video',
-              secure: true,
-              transformation: [
-                {
-                  overlay: logoPublicId,
-                  width: 140,
-                  gravity: 'south_east',
-                  x: 20,
-                  y: 20,
-                  opacity: 85,
-                  crop: 'scale',
-                },
-                { flags: 'layer_apply' },
-              ],
-            });
-          } catch (logoErr) {
-            console.warn('[adWorker] Logo overlay failed (fast-path):', (logoErr as Error).message);
-          }
-        }
+        const generatedVideoUrl = uploadResult.secure_url;
 
         await job.updateProgress(95);
         await prisma.ad.update({
@@ -876,7 +846,9 @@ async function processAdJob(job: Job<{ adId: string }>) {
         ? `Product price mentioned in the video: ${dialogueCtx.price}.`
         : '';
 
-      let klingPrompt = enhancedPrompt;
+      let klingPrompt =
+        'The video opens with immediate natural motion — no freeze frame, no static opening. ' +
+        enhancedPrompt;
       if (klingDialogueText)
         klingPrompt += `\n\nSpoken dialogue (${spokenLang}): "${klingDialogueText}"`;
       klingPrompt += `\nThe creator speaks naturally in ${spokenLang} throughout the video.`;
@@ -884,7 +856,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       await job.updateProgress(15);
 
-      // Build reference image list (person first, product second)
+      // Build reference image list — product first so Sora 2 uses it as the
+      // opening frame; avatar second as the character/person reference.
       const klingRefs: string[] = [];
       if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
       if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
@@ -937,45 +910,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
         public_id: adId,
       });
 
-      // ── Company logo watermark (optional) ──────────────────────────────────
-      // Rendered client-side by Cloudinary transformations — no re-encode needed.
-      const companyLogoUrl = ad.user?.companyLogoUrl;
-      if (companyLogoUrl) {
-        try {
-          // Upload logo with stable per-user public ID (overwrite keeps it fresh)
-          const logoPublicId = `company_logos/${userId}`;
-          await cloudinary.uploader.upload(companyLogoUrl, {
-            public_id: logoPublicId,
-            overwrite: true,
-            invalidate: true,
-          });
-          generatedVideoUrl = cloudinary.url(uploadResult.public_id, {
-            resource_type: 'video',
-            secure: true,
-            transformation: [
-              {
-                overlay: logoPublicId,
-                width: 140,
-                gravity: 'south_east',
-                x: 20,
-                y: 20,
-                opacity: 85,
-                crop: 'scale',
-              },
-              { flags: 'layer_apply' },
-            ],
-          });
-          console.log(`[adWorker] Company logo overlay applied`);
-        } catch (logoErr) {
-          console.warn(
-            '[adWorker] Logo overlay failed — using plain video:',
-            (logoErr as Error).message
-          );
-          generatedVideoUrl = uploadResult.secure_url;
-        }
-      } else {
-        generatedVideoUrl = uploadResult.secure_url;
-      }
+      generatedVideoUrl = uploadResult.secure_url;
     } else {
       // ── HuggingFace ────────────────────────────────────────────────────────
       const hfToken = await getProviderKey('huggingface');
