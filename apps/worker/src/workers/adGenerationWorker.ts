@@ -25,6 +25,7 @@ import {
 import {
   klingVeoSubmitTask,
   klingVeoPollTask,
+  kieGenerateDialogue,
   kieAnalyzeProductImage,
   kieCinematicPrompt,
 } from '../lib/kling';
@@ -105,7 +106,14 @@ async function processAdJob(job: Job<{ adId: string }>) {
         select: { imageUrls: true, name: true, price: true, currency: true, description: true },
       },
       avatar: { select: { avatarVideoUrl: true, rawUrl: true, inputType: true, name: true } },
-      user: { select: { companyName: true, brandVoicePreset: true, brandVoiceCustom: true } },
+      user: {
+        select: {
+          companyName: true,
+          brandVoicePreset: true,
+          brandVoiceCustom: true,
+          companyLogoUrl: true,
+        },
+      },
     },
   });
 
@@ -686,21 +694,67 @@ async function processAdJob(job: Job<{ adId: string }>) {
       });
       generatedVideoUrl = uploadResult.secure_url;
     } else if (provider === 'kling') {
-      // ── Kie.ai Veo 3.1 — credit-based, no daily quota, native audio ────────
-      // Veo 3.1 synthesises audio directly from scene cues in the prompt, so
-      // no separate TTS step is needed.  Dialogue is injected into the prompt.
+      // ── Kie.ai — Sora 2 / Kling 3.0 / Wan, native audio via prompt injection
       const klingKey = await getProviderKey('kling');
       if (!klingKey) throw new Error('KLING_API_KEY not configured');
 
-      // Embed spoken dialogue into the video prompt so Veo voices the lines.
-      const klingDialogue = ad.dialogueText ?? '';
-      const klingPrompt = klingDialogue
-        ? `${enhancedPrompt}\n\nDialogue (spoken in the video): "${klingDialogue}"`
-        : enhancedPrompt;
+      const klingDialogueLanguage = (ad.dialogueLanguage ?? 'en').toLowerCase();
+      let klingDialogueText = ad.dialogueText ?? '';
 
-      if (klingDialogue) {
-        await prisma.ad.update({ where: { id: adId }, data: { dialogueText: klingDialogue } });
+      // ── Auto-generate dialogue ──────────────────────────────────────────────
+      if (ad.autoDialogue && !klingDialogueText) {
+        try {
+          console.log(`[adWorker] Kie.ai: generating dialogue (lang=${klingDialogueLanguage})...`);
+          klingDialogueText = await kieGenerateDialogue(
+            ad.product?.name ?? 'this product',
+            ad.avatar?.name ?? 'the creator',
+            enhancedPrompt,
+            klingDialogueLanguage,
+            adDuration,
+            models.kieVisionModel,
+            klingKey,
+            {
+              companyName: dialogueCtx.companyName,
+              brandVoice: dialogueCtx.brandVoice,
+              price: dialogueCtx.price,
+              productDescription: dialogueCtx.productDescription,
+            }
+          );
+          await prisma.ad.update({
+            where: { id: adId },
+            data: { dialogueText: klingDialogueText, dialogueLanguage: klingDialogueLanguage },
+          });
+        } catch (dlgErr) {
+          console.warn(
+            '[adWorker] Kie.ai dialogue generation failed — continuing without:',
+            (dlgErr as Error).message
+          );
+        }
       }
+
+      // ── Build final prompt ──────────────────────────────────────────────────
+      // Inject dialogue lines, language instruction, and price hint so Sora
+      // synthesises speech and mentions the product price natively.
+      const langNames: Record<string, string> = {
+        en: 'English',
+        ar: 'Arabic',
+        fr: 'French',
+        es: 'Spanish',
+        de: 'German',
+        ja: 'Japanese',
+        ko: 'Korean',
+        zh: 'Chinese',
+      };
+      const spokenLang = langNames[klingDialogueLanguage] ?? 'English';
+      const priceLine = dialogueCtx.price
+        ? `Product price mentioned in the video: ${dialogueCtx.price}.`
+        : '';
+
+      let klingPrompt = enhancedPrompt;
+      if (klingDialogueText)
+        klingPrompt += `\n\nSpoken dialogue (${spokenLang}): "${klingDialogueText}"`;
+      klingPrompt += `\nThe creator speaks naturally in ${spokenLang} throughout the video.`;
+      if (priceLine) klingPrompt += `\n${priceLine}`;
 
       await job.updateProgress(15);
 
@@ -711,15 +765,15 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       console.log(
         `[adWorker] Kling Veo — model=${models.klingVeoModel}, ` +
-          `${klingRefs.length} reference image(s), native audio`
+          `${klingRefs.length} reference image(s), lang=${spokenLang}` +
+          (klingDialogueText ? ', with dialogue' : ', no dialogue')
       );
 
       // ── Kie.ai task ID persistence (Redis) ─────────────────────────────────
       // Store the taskId in Redis right after submission so that if this
       // worker process is restarted mid-poll (e.g. Render redeploy), the
       // retried job can RESUME polling the existing Kie.ai task instead of
-      // submitting a brand-new one (which wastes credits and discards the
-      // partially-completed generation).
+      // submitting a brand-new one (which wastes credits).
       const kieTaskKey = `kie:pendingTask:${adId}`;
       let klingTaskId = await redisConnection.get(kieTaskKey);
       if (klingTaskId) {
@@ -729,7 +783,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
           models.klingVeoModel,
           klingPrompt,
           klingRefs,
-          klingKey
+          klingKey,
+          adDuration
         );
         // TTL: 1 hour — longer than the 12-minute max poll window
         await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 3600);
@@ -755,7 +810,46 @@ async function processAdJob(job: Job<{ adId: string }>) {
         folder: CLOUDINARY_FOLDERS.GENERATED_ADS,
         public_id: adId,
       });
-      generatedVideoUrl = uploadResult.secure_url;
+
+      // ── Company logo watermark (optional) ──────────────────────────────────
+      // Rendered client-side by Cloudinary transformations — no re-encode needed.
+      const companyLogoUrl = ad.user?.companyLogoUrl;
+      if (companyLogoUrl) {
+        try {
+          // Upload logo with stable per-user public ID (overwrite keeps it fresh)
+          const logoPublicId = `company_logos/${userId}`;
+          await cloudinary.uploader.upload(companyLogoUrl, {
+            public_id: logoPublicId,
+            overwrite: true,
+            invalidate: true,
+          });
+          generatedVideoUrl = cloudinary.url(uploadResult.public_id, {
+            resource_type: 'video',
+            secure: true,
+            transformation: [
+              {
+                overlay: logoPublicId,
+                width: 140,
+                gravity: 'south_east',
+                x: 20,
+                y: 20,
+                opacity: 85,
+                crop: 'scale',
+              },
+              { flags: 'layer_apply' },
+            ],
+          });
+          console.log(`[adWorker] Company logo overlay applied`);
+        } catch (logoErr) {
+          console.warn(
+            '[adWorker] Logo overlay failed — using plain video:',
+            (logoErr as Error).message
+          );
+          generatedVideoUrl = uploadResult.secure_url;
+        }
+      } else {
+        generatedVideoUrl = uploadResult.secure_url;
+      }
     } else {
       // ── HuggingFace ────────────────────────────────────────────────────────
       const hfToken = await getProviderKey('huggingface');

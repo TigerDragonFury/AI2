@@ -203,10 +203,12 @@ export async function klingVeoPollTask(
 function buildUnifiedInput(
   model: string,
   prompt: string,
-  imageUrls: string[]
+  imageUrls: string[],
+  durationSec = 10
 ): Record<string, unknown> {
   const validUrls = imageUrls.filter(Boolean);
   const hasImages = validUrls.length > 0;
+  const durStr = String(Math.max(1, Math.round(durationSec)));
 
   // ── Sora 2 models ──────────────────────────────────────────────────────────
   if (model === SORA2_I2V_MODEL || (model === SORA2_T2V_MODEL && hasImages)) {
@@ -215,7 +217,7 @@ function buildUnifiedInput(
       prompt,
       image_urls: validUrls.slice(0, 3),
       aspect_ratio: 'landscape',
-      n_frames: '10',
+      n_frames: durStr,
       size: 'standard',
       remove_watermark: true,
     };
@@ -224,7 +226,7 @@ function buildUnifiedInput(
     return {
       prompt,
       aspect_ratio: 'landscape',
-      n_frames: '10',
+      n_frames: durStr,
       size: 'standard',
       remove_watermark: true,
     };
@@ -236,19 +238,19 @@ function buildUnifiedInput(
       return {
         prompt,
         image_url: validUrls[0], // Kling I2V takes a single image
-        duration: '5',
+        duration: durStr,
         negative_prompt: '',
         cfg_scale: 0.5,
       };
     }
-    return { prompt, duration: '5', negative_prompt: '', aspect_ratio: '16:9', cfg_scale: 0.5 };
+    return { prompt, duration: durStr, negative_prompt: '', aspect_ratio: '16:9', cfg_scale: 0.5 };
   }
 
   // ── Wan model ─────────────────────────────────────────────────────────────
   if (model.startsWith('wan/')) {
     return hasImages
-      ? { prompt, image_url: validUrls[0], duration: '5' }
-      : { prompt, aspect_ratio: '16:9', duration: '5' };
+      ? { prompt, image_url: validUrls[0], duration: durStr }
+      : { prompt, aspect_ratio: '16:9', duration: durStr };
   }
 
   // ── Generic fallback ──────────────────────────────────────────────────────
@@ -260,9 +262,10 @@ export async function klingVeoSubmitTask(
   model: string,
   prompt: string,
   imageUrls: string[],
-  apiKey: string
+  apiKey: string,
+  durationSec = 10
 ): Promise<string> {
-  const input = buildUnifiedInput(model, prompt, imageUrls);
+  const input = buildUnifiedInput(model, prompt, imageUrls, durationSec);
   const effectiveModel =
     model === SORA2_T2V_MODEL && imageUrls.filter(Boolean).length > 0
       ? SORA2_I2V_MODEL // auto-upgrade
@@ -311,6 +314,84 @@ function extractKieText(json: KieChatResponse): string | undefined {
   const parts = Array.isArray(raw) ? raw : [];
   const textPart = parts.find((p) => p.type === 'text' && p.text) ?? parts.find((p) => p.text);
   return textPart?.text?.trim() || undefined;
+}
+
+/**
+ * Auto-generate a short spoken dialogue script for a UGC ad via Kie.ai Gemini.
+ * Mirrors dashscopeGenerateDialogue() for the kling provider path —
+ * same prompt structure, same language support, no extra API key needed.
+ */
+export async function kieGenerateDialogue(
+  productName: string,
+  avatarName: string,
+  sceneDescription: string,
+  language: string,
+  durationSec: number,
+  model: string,
+  apiKey: string,
+  ctx?: { companyName?: string; brandVoice?: string; price?: string; productDescription?: string }
+): Promise<string> {
+  const wordLimit = durationSec <= 3 ? 15 : durationSec <= 5 ? 25 : 40;
+  const langNames: Record<string, string> = {
+    en: 'English',
+    ar: 'Arabic',
+    fr: 'French',
+    es: 'Spanish',
+    de: 'German',
+    ja: 'Japanese',
+    ko: 'Korean',
+    zh: 'Chinese',
+  };
+  const langName = langNames[language] ?? 'English';
+
+  const brandTone = ctx?.brandVoice
+    ? `Brand tone / voice: ${ctx.brandVoice}. Match this tone throughout.`
+    : '';
+  const brandName = ctx?.companyName ? `Brand name: "${ctx.companyName}". ` : '';
+  const priceInstruction = ctx?.price
+    ? `The product costs ${ctx.price} — work this price into the CTA naturally (e.g. "Only ${ctx.price}!"). `
+    : '';
+  const productDescLine = ctx?.productDescription
+    ? `Product details: ${ctx.productDescription}. `
+    : '';
+
+  const systemPrompt =
+    `You are a professional paid-ad copywriter specialising in short UGC video ads. ` +
+    `You MUST write ONLY in ${langName} — every single word of your response must be in ${langName}. ` +
+    `Your sole goal is to make viewers want to PURCHASE the product being advertised. ` +
+    `Always highlight a concrete benefit or quality of the product and end with a call to action. ` +
+    `NEVER narrate what the person is doing — speak TO the viewer ABOUT the product. ` +
+    `Be punchy, energetic, and persuasive. ${brandTone}`;
+
+  const userPrompt =
+    `${brandName}${productDescLine}${priceInstruction}` +
+    `Write a ${wordLimit}-word max spoken dialogue script in ${langName} for a ${durationSec}-second ` +
+    `UGC video ad for the product "${productName}" presented by ${avatarName}. ` +
+    `Context: ${sceneDescription}. ` +
+    `Output ONLY the dialogue text — no stage directions, no labels, no quotes.`;
+
+  const res = await fetch(`${KLING_BASE}/${model}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      stream: false,
+      include_thoughts: false,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok)
+    throw new Error(`Kie.ai dialogue generation error ${res.status}: ${await res.text()}`);
+
+  const json = (await res.json()) as KieChatResponse;
+  const text = extractKieText(json);
+  if (!text) throw new Error('Kie.ai dialogue generation returned no text');
+  console.log(`[Kie.ai Dialogue] Generated (${text.length} chars, lang=${language}): "${text}"`);
+  return text;
 }
 
 /**
