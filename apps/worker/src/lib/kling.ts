@@ -17,7 +17,7 @@
 
 const KLING_BASE = 'https://api.kie.ai';
 const POLL_INTERVAL_MS = 5_000; // 5 s between polls
-const MAX_POLLS = 144; // 12 minutes max
+const MAX_POLLS = 240; // 20 minutes max (sora-2-pro can take 15–18 min)
 
 // Models that still use the legacy Veo endpoint
 const LEGACY_VEO_MODELS = new Set(['veo3', 'veo3_fast']);
@@ -512,7 +512,10 @@ export async function kieCinematicPrompt(
 
   const json = (await res.json()) as KieChatResponse;
   const text = extractKieText(json);
-  if (!text) throw new Error('Kie.ai cinematic prompt returned no text');
+  if (!text) {
+    console.error('[Kie.ai Cinematic] Raw response:', JSON.stringify(json).slice(0, 1000));
+    throw new Error('Kie.ai cinematic prompt returned no text');
+  }
   console.log(`[Kie.ai Cinematic] Generated timeline prompt (${text.length} chars)`);
   return text;
 }
