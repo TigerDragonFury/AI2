@@ -317,6 +317,39 @@ function extractKieText(json: KieChatResponse): string | undefined {
 }
 
 /**
+ * POST to a Kie.ai chat completions endpoint with one automatic retry on
+ * transient failures (5xx, network error, timeout).  Returns the parsed JSON.
+ */
+async function kieChat(
+  url: string,
+  apiKey: string,
+  body: Record<string, unknown>,
+  timeoutMs = 90_000
+): Promise<KieChatResponse> {
+  const attempt = async () => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`Kie.ai chat error ${res.status}: ${await res.text()}`);
+    const json = (await res.json()) as KieChatResponse & { code?: number; msg?: string };
+    // Kie.ai returns 200 with { code: 500, msg: "Server exception" } for server errors
+    if (json.code && json.code >= 500) throw new Error(`Kie.ai server error: ${json.msg}`);
+    return json as KieChatResponse;
+  };
+  try {
+    return await attempt();
+  } catch (err) {
+    // One retry after a 4-second pause for transient errors
+    console.warn(`[Kie.ai] Chat attempt failed (${(err as Error).message}), retrying in 4s...`);
+    await new Promise((r) => setTimeout(r, 4_000));
+    return attempt();
+  }
+}
+
+/**
  * Auto-generate a short spoken dialogue script for a UGC ad via Kie.ai Gemini.
  * Mirrors dashscopeGenerateDialogue() for the kling provider path —
  * same prompt structure, same language support, no extra API key needed.
@@ -370,24 +403,19 @@ export async function kieGenerateDialogue(
     `Context: ${sceneDescription}. ` +
     `Output ONLY the dialogue text — no stage directions, no labels, no quotes.`;
 
-  const res = await fetch(`${KLING_BASE}/${model}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  const json = await kieChat(
+    `${KLING_BASE}/${model}/v1/chat/completions`,
+    apiKey,
+    {
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       stream: false,
       include_thoughts: false,
-    }),
-    signal: AbortSignal.timeout(90_000), // 90s — matches vision; Arabic/non-Latin is slower
-  });
-
-  if (!res.ok)
-    throw new Error(`Kie.ai dialogue generation error ${res.status}: ${await res.text()}`);
-
-  const json = (await res.json()) as KieChatResponse;
+    },
+    90_000
+  );
   const text = extractKieText(json);
   if (!text) throw new Error('Kie.ai dialogue generation returned no text');
   console.log(`[Kie.ai Dialogue] Generated (${text.length} chars, lang=${language}): "${text}"`);
@@ -425,10 +453,10 @@ export async function kieAnalyzeProductImage(
     productDetailHint +
     ` Output ONLY the scene description — no titles, no explanations.`;
 
-  const res = await fetch(`${KLING_BASE}/${model}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  const json = await kieChat(
+    `${KLING_BASE}/${model}/v1/chat/completions`,
+    apiKey,
+    {
       messages: [
         {
           role: 'user',
@@ -439,14 +467,10 @@ export async function kieAnalyzeProductImage(
         },
       ],
       stream: false,
-      include_thoughts: false, // disable thinking tokens so content is a plain string
-    }),
-    signal: AbortSignal.timeout(90_000), // 90s — vision calls are slower than text-only
-  });
-
-  if (!res.ok) throw new Error(`Kie.ai vision error ${res.status}: ${await res.text()}`);
-
-  const json = (await res.json()) as KieChatResponse;
+      include_thoughts: false,
+    },
+    90_000
+  );
   const text = extractKieText(json);
   if (!text)
     throw new Error(`Kie.ai vision returned no text: ${JSON.stringify(json).slice(0, 200)}`);
@@ -494,23 +518,19 @@ export async function kieCinematicPrompt(
     `Scene description: ${sceneDescription}\n\n` +
     `Write the cinematic timeline prompt now.`;
 
-  const res = await fetch(`${KLING_BASE}/${model}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  const json = await kieChat(
+    `${KLING_BASE}/${model}/v1/chat/completions`,
+    apiKey,
+    {
       messages: [
         { role: 'system', content: systemInstruction },
         { role: 'user', content: userContent },
       ],
       stream: false,
-      include_thoughts: false, // disable thinking tokens so content is a plain string
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-
-  if (!res.ok) throw new Error(`Kie.ai cinematic prompt error ${res.status}: ${await res.text()}`);
-
-  const json = (await res.json()) as KieChatResponse;
+      include_thoughts: false,
+    },
+    60_000
+  );
   const text = extractKieText(json);
   if (!text) {
     console.error('[Kie.ai Cinematic] Raw response:', JSON.stringify(json).slice(0, 1000));

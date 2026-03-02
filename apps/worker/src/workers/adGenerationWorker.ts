@@ -244,13 +244,20 @@ async function processAdJob(job: Job<{ adId: string }>) {
         await redisConnection.del(adMutexKey);
         return;
       } catch (resumeErr) {
-        // Polling failed — fall through to full re-generation.
-        // Do NOT delete the Redis key here: the main kling block at line ~874
-        // will find the same key and either retry polling or handle the error.
-        // Deleting it here would cause an unnecessary new task submission.
+        const resumeErrMsg = (resumeErr as Error).message;
+        // If Kie.ai returned a terminal failure (state=fail) the task is dead
+        // and will never recover — delete the Redis key so the main path submits
+        // a fresh task instead of re-polling the same dead one.
+        // Only preserve the key for our own poll timeout (transient stall).
+        if (!resumeErrMsg.includes('timed out')) {
+          await redisConnection.del(kieTaskKey);
+          console.warn(
+            `[adWorker] Fast-path: terminal Kie.ai failure — clearing stale task key so next retry submits fresh`
+          );
+        }
         console.warn(
           `[adWorker] Fast-path resume failed — falling through to main path:`,
-          (resumeErr as Error).message
+          resumeErrMsg
         );
       }
     }
@@ -889,9 +896,25 @@ async function processAdJob(job: Job<{ adId: string }>) {
         await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 3600);
       }
 
-      const klingVideoUrl = await klingVeoPollTask(klingTaskId, klingKey, (pct) =>
-        job.updateProgress(20 + Math.floor(pct * 0.6))
-      );
+      let klingVideoUrl: string;
+      try {
+        klingVideoUrl = await klingVeoPollTask(klingTaskId, klingKey, (pct) =>
+          job.updateProgress(20 + Math.floor(pct * 0.6))
+        );
+      } catch (pollErr) {
+        const pollErrMsg = (pollErr as Error).message;
+        // Terminal Kie.ai failure (state=fail) — discard the dead task ID so the
+        // next BullMQ retry reaches the submission block and starts a new task.
+        // Transient poll timeouts keep the key to resume on the next attempt.
+        if (!pollErrMsg.includes('timed out')) {
+          await redisConnection.del(kieTaskKey);
+          console.warn(
+            `[adWorker] Kie.ai terminal failure — clearing Redis task key so next retry submits fresh:`,
+            pollErrMsg
+          );
+        }
+        throw pollErr;
+      }
 
       // Task complete — remove the Redis resume key
       await redisConnection.del(kieTaskKey);
