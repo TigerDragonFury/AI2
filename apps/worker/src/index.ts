@@ -145,7 +145,7 @@ app.post('/admin/kie-tasks/:adId/resume', requireAdminSecret, async (req, res) =
     // Use a stable jobId so BullMQ deduplicates: if a job for this adId is
     // already waiting or active, no second job is created (avoids two concurrent
     // workers racing to consume the same Redis key).
-    await adGenerationQueue.add('generate-ad', { adId }, { jobId: `resume:${adId}` });
+    await adGenerationQueue.add('generate-ad', { adId }, { jobId: `resume-${adId}` });
     console.log(`[admin] Manually resumed Kie.ai task ${taskId} for ad ${adId}`);
     res.redirect(`/admin/kie-tasks${secretParam}`);
   } catch (e) {
