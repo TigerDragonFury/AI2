@@ -167,6 +167,9 @@ async function processAdJob(job: Job<{ adId: string }>) {
   if (provider === 'kling') {
     const kieTaskKey = `kie:pendingTask:${adId}`;
     const existingTaskId = await redisConnection.get(kieTaskKey);
+    console.log(
+      `[adWorker] Fast-path check: ${kieTaskKey} → ${existingTaskId ?? 'null (no fast-path)'}`
+    );
     if (existingTaskId) {
       console.log(
         `[adWorker] Fast-path resume: polling existing Kie.ai task ${existingTaskId} (skipping vision/cinematic/dialogue)`
@@ -246,12 +249,14 @@ async function processAdJob(job: Job<{ adId: string }>) {
         console.log(`[adWorker] Ad ${adId} resumed and completed successfully`);
         return;
       } catch (resumeErr) {
-        // Polling failed — fall through to full re-generation
+        // Polling failed — fall through to full re-generation.
+        // Do NOT delete the Redis key here: the main kling block at line ~874
+        // will find the same key and either retry polling or handle the error.
+        // Deleting it here would cause an unnecessary new task submission.
         console.warn(
-          `[adWorker] Fast-path resume failed — falling through to full re-generation:`,
+          `[adWorker] Fast-path resume failed — falling through to main path:`,
           (resumeErr as Error).message
         );
-        await redisConnection.del(kieTaskKey);
       }
     }
   }

@@ -141,8 +141,11 @@ app.post('/admin/kie-tasks/:adId/resume', requireAdminSecret, async (req, res) =
         `<p>No pending task found for ad <code>${adId}</code>. It may have already completed or been discarded.</p><a href="/admin/kie-tasks${secretParam}">← Back</a>`
       );
     }
-    // Re-add to BullMQ — worker will find the Redis key and resume polling
-    await adGenerationQueue.add('generate-ad', { adId }, { jobId: `resume-${Date.now()}` });
+    // Re-add to BullMQ — worker will find the Redis key and resume polling.
+    // Use a stable jobId so BullMQ deduplicates: if a job for this adId is
+    // already waiting or active, no second job is created (avoids two concurrent
+    // workers racing to consume the same Redis key).
+    await adGenerationQueue.add('generate-ad', { adId }, { jobId: `resume:${adId}` });
     console.log(`[admin] Manually resumed Kie.ai task ${taskId} for ad ${adId}`);
     res.redirect(`/admin/kie-tasks${secretParam}`);
   } catch (e) {
