@@ -381,7 +381,7 @@ export async function kieGenerateDialogue(
       stream: false,
       include_thoughts: false,
     }),
-    signal: AbortSignal.timeout(60_000), // 60s — consistent with other Kie.ai chat calls
+    signal: AbortSignal.timeout(90_000), // 90s — matches vision; Arabic/non-Latin is slower
   });
 
   if (!res.ok)
