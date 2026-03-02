@@ -141,6 +141,10 @@ app.post('/admin/kie-tasks/:adId/resume', requireAdminSecret, async (req, res) =
         `<p>No pending task found for ad <code>${adId}</code>. It may have already completed or been discarded.</p><a href="/admin/kie-tasks${secretParam}">← Back</a>`
       );
     }
+    // Clear any stale per-ad mutex left by a dead process (e.g. Render killed
+    // the worker mid-poll — the catch block never ran so the lock was never
+    // released). Admin Resume is an explicit override, so it's safe to clear.
+    await redisConnection.del(`adMutex:${adId}`);
     // Re-add to BullMQ — worker will find the Redis key and resume polling.
     // Use a stable jobId so BullMQ deduplicates: if a job for this adId is
     // already waiting or active, no second job is created (avoids two concurrent

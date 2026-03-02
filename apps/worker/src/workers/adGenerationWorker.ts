@@ -132,10 +132,19 @@ async function processAdJob(job: Job<{ adId: string }>) {
   const gotLock = await redisConnection.set(adMutexKey, job.id ?? 'unknown', 'EX', 1500, 'NX');
   if (!gotLock) {
     const holder = await redisConnection.get(adMutexKey);
-    console.log(
-      `[adWorker] Skipping duplicate job — ad ${adId} already being processed by job ${holder}`
-    );
-    return;
+    // Allow through if THIS job is the one that holds the lock — this happens
+    // when BullMQ stall-recovery retries the same job after a process crash
+    // (the lock was never released because the process was killed).
+    if (holder && holder === job.id) {
+      // Re-arm the TTL so it doesn't expire mid-run
+      await redisConnection.expire(adMutexKey, 1500);
+      console.log(`[adWorker] Re-acquired stale mutex for own job ${job.id} (ad ${adId})`);
+    } else {
+      console.log(
+        `[adWorker] Skipping duplicate job — ad ${adId} already being processed by job ${holder}`
+      );
+      return;
+    }
   }
 
   await prisma.ad.update({ where: { id: adId }, data: { status: 'processing' } });
