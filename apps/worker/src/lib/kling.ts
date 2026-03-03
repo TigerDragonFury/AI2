@@ -209,9 +209,9 @@ function buildUnifiedInput(
   const validUrls = imageUrls.filter(Boolean);
   const hasImages = validUrls.length > 0;
   const durStr = String(Math.max(1, Math.round(durationSec)));
-  // Sora 2 API only accepts the string literals "10s" or "15s" for n_frames.
-  // Sending a bare number (e.g. "15") is invalid and causes server-side failures.
-  const sora2NFrames = durationSec >= 13 ? '15s' : '10s';
+  // Sora 2 API n_frames accepts "10" or "15" (bare number strings).
+  // "10s"/"15s" are only UI labels on the playground — not valid API values.
+  const sora2NFrames = durationSec >= 13 ? '15' : '10';
 
   // ── Sora 2 models ──────────────────────────────────────────────────────────
   if (model === SORA2_I2V_MODEL || (model === SORA2_T2V_MODEL && hasImages)) {
@@ -221,7 +221,6 @@ function buildUnifiedInput(
       image_urls: validUrls.slice(0, 3),
       aspect_ratio: 'landscape',
       n_frames: sora2NFrames,
-      size: 'standard',
       remove_watermark: true,
     };
   }
@@ -230,7 +229,6 @@ function buildUnifiedInput(
       prompt,
       aspect_ratio: 'landscape',
       n_frames: sora2NFrames,
-      size: 'standard',
       remove_watermark: true,
     };
   }
