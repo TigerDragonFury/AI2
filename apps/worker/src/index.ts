@@ -83,6 +83,10 @@ app.get('/admin/kie-tasks', requireAdminSecret, async (_req, res) => {
     const secretParam = process.env.WORKER_ADMIN_SECRET
       ? `?secret=${process.env.WORKER_ADMIN_SECRET}`
       : '';
+
+    // Find active BullMQ lock keys so user can see which jobs are locked
+    const lockKeys = await redisConnection.keys('bull:ad_generation:*:lock');
+
     const rows = tasks.length
       ? tasks
           .map(
@@ -105,29 +109,84 @@ app.get('/admin/kie-tasks', requireAdminSecret, async (_req, res) => {
           .join('')
       : '<tr><td colspan="3" style="padding:16px;text-align:center;color:#888">No stalled Kie.ai tasks</td></tr>';
 
+    const lockSection =
+      lockKeys.length > 0
+        ? `
+<h2 style="font-size:1.1rem;margin-top:32px;margin-bottom:8px">🔒 Locked BullMQ Jobs (${lockKeys.length})</h2>
+<p style="color:#f59e0b;font-size:.85rem;margin-bottom:12px">
+  These jobs are stuck as "active" and won't retry on their own until the lock expires.<br>
+  Use <strong>Force Unlock</strong> to release them immediately so the worker re-picks them up.
+</p>
+<table>
+  <thead><tr><th>Lock Key</th><th>Action</th></tr></thead>
+  <tbody>
+    ${lockKeys
+      .map(
+        (k) => `
+    <tr>
+      <td style="padding:8px 12px;font-family:monospace">${k}</td>
+      <td style="padding:8px 12px">
+        <form method="POST" action="/admin/bull/unlock${secretParam}" style="display:inline"
+              onsubmit="return confirm('Force unlock ${k}? The job will be re-queued.')">
+          <input type="hidden" name="lockKey" value="${k}">
+          <button style="background:#f59e0b;color:#000;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:600">🔓 Force Unlock</button>
+        </form>
+      </td>
+    </tr>`
+      )
+      .join('')}
+  </tbody>
+</table>`
+        : '<p style="color:#4ade80;margin-top:24px">✅ No locked BullMQ jobs — all clear.</p>';
+
     res.send(`<!DOCTYPE html>
 <html>
 <head><title>Kie.ai Stalled Tasks</title>
 <meta http-equiv="refresh" content="15">
 <style>body{font-family:sans-serif;margin:32px;background:#0f0f0f;color:#e5e5e5}
-h1{font-size:1.4rem;margin-bottom:4px}p{color:#888;font-size:.85rem;margin-bottom:24px}
-table{border-collapse:collapse;width:100%;background:#1a1a1a;border-radius:8px;overflow:hidden}
+h1{font-size:1.4rem;margin-bottom:4px}h2{font-size:1.1rem}p{color:#888;font-size:.85rem;margin-bottom:24px}
+table{border-collapse:collapse;width:100%;background:#1a1a1a;border-radius:8px;overflow:hidden;margin-bottom:8px}
 th{background:#262626;padding:10px 12px;text-align:left;font-size:.8rem;color:#aaa;text-transform:uppercase;letter-spacing:.05em}
 tr:not(:last-child){border-bottom:1px solid #2a2a2a}
 a{color:#60a5fa;text-decoration:none}</style>
 </head>
 <body>
-<h1>🎬 Kie.ai Stalled Tasks</h1>
+<h1>🎬 Kie.ai Task Manager</h1>
 <p>Auto-refreshes every 15 s &nbsp;·&nbsp; <a href="/admin/queues${secretParam}">← Bull Board</a></p>
+<h2 style="font-size:1.1rem;margin-bottom:8px">📋 Pending Kie.ai Tasks</h2>
 <table>
   <thead><tr><th>Ad ID</th><th>Kie.ai Task ID</th><th>Actions</th></tr></thead>
   <tbody>${rows}</tbody>
 </table>
+${lockSection}
 </body></html>`);
   } catch (e) {
     res.status(500).send(String(e));
   }
 });
+
+/** Force-unlock a specific BullMQ lock key so the stalled job becomes active again */
+app.post(
+  '/admin/bull/unlock',
+  requireAdminSecret,
+  express.urlencoded({ extended: false }),
+  async (req, res) => {
+    const lockKey = req.body?.lockKey as string | undefined;
+    const secretParam = process.env.WORKER_ADMIN_SECRET
+      ? `?secret=${process.env.WORKER_ADMIN_SECRET}`
+      : '';
+    if (!lockKey || !lockKey.startsWith('bull:')) {
+      return res.status(400).send('Invalid lock key');
+    }
+    try {
+      const deleted = await redisConnection.del(lockKey);
+      console.log(`[admin] Force-unlocked BullMQ lock key: ${lockKey} (deleted=${deleted})`);
+      res.redirect(`/admin/kie-tasks${secretParam}`);
+    } catch (e) {
+      res.status(500).send(String(e));
+    }
+  }
+);
 
 app.post('/admin/kie-tasks/:adId/resume', requireAdminSecret, async (req, res) => {
   const { adId } = req.params;
