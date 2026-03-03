@@ -235,29 +235,6 @@ app.listen(PORT, () => {
   console.log(`[worker] Bull Board available at http://localhost:${PORT}/admin/queues`);
 });
 
-// ─── Startup: release stale BullMQ locks from dead previous process ──────────
-// On Render, every deploy kills the old process and starts a new one.
-// Any active job locks left by the old process will block the new worker from
-// picking up those jobs until the lock TTL expires (now 5 min, was 30 min).
-// Deleting them on startup is always safe — the old process is guaranteed dead.
-// Wait for the Redis connection to be ready before scanning (lazyConnect=true,
-// enableOfflineQueue=false means commands fail if issued before connect).
-redisConnection.once('ready', async () => {
-  try {
-    const staleKeys = await redisConnection.keys('bull:*:*:lock');
-    if (staleKeys.length > 0) {
-      await redisConnection.del(...staleKeys);
-      console.log(
-        `[worker] Startup: released ${staleKeys.length} stale BullMQ lock(s): ${staleKeys.join(', ')}`
-      );
-    } else {
-      console.log('[worker] Startup: no stale locks found');
-    }
-  } catch (e) {
-    console.warn('[worker] Startup lock cleanup failed (non-fatal):', e);
-  }
-});
-
 // ─── Start workers ────────────────────────────────────────────────────────────
 console.log('[worker] Starting avatar processing worker...');
 avatarProcessingWorker;
