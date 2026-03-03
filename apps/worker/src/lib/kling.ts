@@ -20,7 +20,7 @@ const POLL_INTERVAL_MS = 5_000; // 5 s between polls
 const MAX_POLLS = 240; // 20 minutes max (sora-2-pro can take 15–18 min)
 
 // Models that still use the legacy Veo endpoint
-const LEGACY_VEO_MODELS = new Set(['veo3', 'veo3_fast']);
+export const LEGACY_VEO_MODELS = new Set(['veo3', 'veo3_fast']);
 
 // Models routing
 const SORA2_I2V_MODEL = 'sora-2-pro-image-to-video';
@@ -75,7 +75,7 @@ async function downloadVideo(url: string): Promise<Buffer> {
 
 // ─── Legacy Veo path ─────────────────────────────────────────────────────────
 
-async function klingVeoPoll(
+export async function klingVeoPoll(
   taskId: string,
   apiKey: string,
   onProgress?: (pct: number) => void
@@ -110,7 +110,7 @@ async function klingVeoPoll(
   throw new Error(`Kling Veo timed out after ${(MAX_POLLS * POLL_INTERVAL_MS) / 60_000} min`);
 }
 
-async function submitKlingVeoLegacy(
+export async function submitKlingVeoLegacy(
   model: string,
   prompt: string,
   imageUrls: string[],

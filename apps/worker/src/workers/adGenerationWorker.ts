@@ -25,6 +25,9 @@ import {
 import {
   klingVeoSubmitTask,
   klingVeoPollTask,
+  submitKlingVeoLegacy,
+  klingVeoPoll,
+  LEGACY_VEO_MODELS,
   kieGenerateDialogue,
   kieAnalyzeProductImage,
   kieCinematicPrompt,
@@ -203,9 +206,14 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       try {
         await job.updateProgress(20);
-        const klingVideoUrl = await klingVeoPollTask(existingTaskId, klingKey, (pct) =>
-          job.updateProgress(20 + Math.floor(pct * 0.6))
-        );
+        const isLegacyVeo = LEGACY_VEO_MODELS.has(models.klingVeoModel);
+        const klingVideoUrl = isLegacyVeo
+          ? await klingVeoPoll(existingTaskId, klingKey, (pct) =>
+              job.updateProgress(20 + Math.floor(pct * 0.6))
+            )
+          : await klingVeoPollTask(existingTaskId, klingKey, (pct) =>
+              job.updateProgress(20 + Math.floor(pct * 0.6))
+            );
         await redisConnection.del(kieTaskKey);
         await job.updateProgress(80);
 
@@ -884,7 +892,18 @@ async function processAdJob(job: Job<{ adId: string }>) {
       let klingTaskId = await redisConnection.get(kieTaskKey);
       if (klingTaskId) {
         console.log(`[adWorker] Resuming existing Kie.ai task ${klingTaskId}`);
+      } else if (LEGACY_VEO_MODELS.has(models.klingVeoModel)) {
+        // Legacy Veo 3.1 path — uses /api/v1/veo/generate + /api/v1/veo/record-info
+        klingTaskId = await submitKlingVeoLegacy(
+          models.klingVeoModel,
+          klingPrompt,
+          klingRefs,
+          klingKey
+        );
+        // TTL: 1 hour — longer than the 12-minute max poll window
+        await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 3600);
       } else {
+        // Unified API path — Sora 2, Kling, Wan, etc.
         klingTaskId = await klingVeoSubmitTask(
           models.klingVeoModel,
           klingPrompt,
@@ -898,9 +917,13 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       let klingVideoUrl: string;
       try {
-        klingVideoUrl = await klingVeoPollTask(klingTaskId, klingKey, (pct) =>
-          job.updateProgress(20 + Math.floor(pct * 0.6))
-        );
+        klingVideoUrl = LEGACY_VEO_MODELS.has(models.klingVeoModel)
+          ? await klingVeoPoll(klingTaskId, klingKey, (pct) =>
+              job.updateProgress(20 + Math.floor(pct * 0.6))
+            )
+          : await klingVeoPollTask(klingTaskId, klingKey, (pct) =>
+              job.updateProgress(20 + Math.floor(pct * 0.6))
+            );
       } catch (pollErr) {
         const pollErrMsg = (pollErr as Error).message;
         // Terminal Kie.ai failure (state=fail) — discard the dead task ID so the
