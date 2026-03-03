@@ -221,6 +221,7 @@ function buildUnifiedInput(
       image_urls: validUrls.slice(0, 3),
       aspect_ratio: 'landscape',
       n_frames: sora2NFrames,
+      size: 'high',
       remove_watermark: true,
     };
   }
@@ -229,6 +230,7 @@ function buildUnifiedInput(
       prompt,
       aspect_ratio: 'landscape',
       n_frames: sora2NFrames,
+      size: 'high',
       remove_watermark: true,
     };
   }
