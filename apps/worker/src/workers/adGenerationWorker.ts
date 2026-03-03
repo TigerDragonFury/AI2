@@ -1107,13 +1107,14 @@ export const adGenerationWorker = new Worker<{ adId: string }>(
     // Default drainDelay=5ms causes ~200 req/s per worker when idle — burns the limit in hours.
     // 5 000ms idle poll = 12 req/min max (vs 12 000/min default).
     drainDelay: 5_000,
-    // Stalled-job check: every 5 min instead of every 30 s (10× fewer background commands).
-    stalledInterval: 300_000,
-    // Lock duration: 30 minutes — well beyond the 12-min max poll + upload time.
-    // Renewal fires at lockDuration/2 (every 15 min), so a job running for ~15 min
-    // still gets one renewal.  The generous window means a Redis blip during the
-    // polling loop won't accidentally expire the lock and trigger a stall.
-    lockDuration: 1_800_000,
+    // Stalled-job check: every 60s — fast recovery after Render deploys.
+    stalledInterval: 60_000,
+    // Lock duration: 5 minutes. BullMQ auto-renews every lockDuration/2 (2.5 min)
+    // while the worker is alive, so 20-min jobs are fine. If the process dies
+    // (e.g. Render redeploy), the lock expires in at most 5 min instead of 30 min,
+    // so the stall check re-queues the job quickly and the fast-path Redis key
+    // (kie:pendingTask:{adId}) resumes polling the existing Kie.ai task.
+    lockDuration: 300_000,
     // Allow up to 3 stall events before moving a job to failed.
     // Render deploys kill the process mid-poll; the new instance resumes via
     // the Redis kieTaskId key — so each stall is a safe, resumable restart.
