@@ -240,7 +240,9 @@ app.listen(PORT, () => {
 // Any active job locks left by the old process will block the new worker from
 // picking up those jobs until the lock TTL expires (now 5 min, was 30 min).
 // Deleting them on startup is always safe — the old process is guaranteed dead.
-(async () => {
+// Wait for the Redis connection to be ready before scanning (lazyConnect=true,
+// enableOfflineQueue=false means commands fail if issued before connect).
+redisConnection.once('ready', async () => {
   try {
     const staleKeys = await redisConnection.keys('bull:*:*:lock');
     if (staleKeys.length > 0) {
@@ -254,7 +256,7 @@ app.listen(PORT, () => {
   } catch (e) {
     console.warn('[worker] Startup lock cleanup failed (non-fatal):', e);
   }
-})();
+});
 
 // ─── Start workers ────────────────────────────────────────────────────────────
 console.log('[worker] Starting avatar processing worker...');
