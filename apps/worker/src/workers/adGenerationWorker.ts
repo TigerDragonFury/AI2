@@ -253,20 +253,23 @@ async function processAdJob(job: Job<{ adId: string }>) {
         return;
       } catch (resumeErr) {
         const resumeErrMsg = (resumeErr as Error).message;
-        // If Kie.ai returned a terminal failure (state=fail) the task is dead
-        // and will never recover — delete the Redis key so the main path submits
-        // a fresh task instead of re-polling the same dead one.
-        // Only preserve the key for our own poll timeout (transient stall).
-        if (!resumeErrMsg.includes('timed out')) {
-          await redisConnection.del(kieTaskKey);
+        if (resumeErrMsg.includes('timed out')) {
+          // Transient poll timeout — the Kie.ai task is still alive, just slow.
+          // Rethrow so BullMQ retries the job; the next attempt will re-enter
+          // this fast-path and resume polling without re-running vision/cinematic.
           console.warn(
-            `[adWorker] Fast-path: terminal Kie.ai failure — clearing stale task key so next retry submits fresh`
+            `[adWorker] Fast-path timed out — rethrowing for BullMQ retry (task key preserved)`
           );
+          throw resumeErr;
         }
+        // Terminal Kie.ai failure (state=fail) — task is dead, clear the key
+        // so the next BullMQ retry reaches the submission block and starts fresh.
+        await redisConnection.del(kieTaskKey);
         console.warn(
-          `[adWorker] Fast-path resume failed — falling through to main path:`,
+          `[adWorker] Fast-path: terminal Kie.ai failure — clearing stale task key so next retry submits fresh:`,
           resumeErrMsg
         );
+        throw resumeErr;
       }
     }
   }
@@ -900,8 +903,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
           klingRefs,
           klingKey
         );
-        // TTL: 1 hour — longer than the 12-minute max poll window
-        await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 3600);
+        // TTL: 4 hours — survives multiple 30-min retry cycles
+        await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 14400);
       } else {
         // Unified API path — Sora 2, Kling, Wan, etc.
         klingTaskId = await klingVeoSubmitTask(
@@ -911,8 +914,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
           klingKey,
           adDuration
         );
-        // TTL: 1 hour — longer than the 12-minute max poll window
-        await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 3600);
+        // TTL: 4 hours — survives multiple 30-min retry cycles
+        await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 14400); // 4 h — survives multiple 30-min retry cycles
       }
 
       let klingVideoUrl: string;
