@@ -17,7 +17,8 @@
 
 const KLING_BASE = 'https://api.kie.ai';
 const POLL_INTERVAL_MS = 5_000; // 5 s between polls
-const MAX_POLLS = 240; // 20 minutes max (sora-2-pro can take 15–18 min)
+const MAX_POLLS = 360; // 30 minutes max — Kie.ai's nominal window is 20 min but
+// jobs at 99% can linger; 30 min gives a 10-min buffer before we declare timeout.
 
 // Models that still use the legacy Veo endpoint
 export const LEGACY_VEO_MODELS = new Set(['veo3', 'veo3_fast']);
