@@ -47,6 +47,7 @@ const createAvatarSchema = z.object({
   name: z.string().min(1).max(100),
   rawUrl: z.string().url(),
   inputType: z.enum(['image', 'video']),
+  skipProcessing: z.boolean().optional().default(false),
 });
 
 // POST /api/avatars — create avatar record after upload
@@ -58,25 +59,30 @@ avatarsRouter.post(
   async (req: AuthRequest, res, next) => {
     try {
       const body = createAvatarSchema.parse(req.body);
+      // When skipProcessing=true (image used as photo reference), mark ready immediately
+      // so the ad generation worker can use it right away without waiting for animation.
+      const skipProcessing = body.skipProcessing && body.inputType === 'image';
       const avatar = await prisma.avatar.create({
         data: {
           userId: req.userId!,
           name: body.name,
           rawUrl: body.rawUrl,
           inputType: body.inputType,
-          status: 'processing',
+          status: skipProcessing ? 'ready' : 'processing',
         },
       });
-      // Enqueue avatar processing job (best-effort — Redis may be unavailable in dev)
-      try {
-        await avatarProcessingQueue.add('process-avatar', {
-          avatarId: avatar.id,
-          userId: req.userId!,
-          rawUrl: body.rawUrl,
-          inputType: body.inputType,
-        });
-      } catch (qErr) {
-        console.warn('[queue] avatarProcessingQueue unavailable:', (qErr as Error).message);
+      if (!skipProcessing) {
+        // Enqueue avatar processing job (best-effort — Redis may be unavailable in dev)
+        try {
+          await avatarProcessingQueue.add('process-avatar', {
+            avatarId: avatar.id,
+            userId: req.userId!,
+            rawUrl: body.rawUrl,
+            inputType: body.inputType,
+          });
+        } catch (qErr) {
+          console.warn('[queue] avatarProcessingQueue unavailable:', (qErr as Error).message);
+        }
       }
       res.status(201).json({ data: avatar, success: true });
     } catch (err) {

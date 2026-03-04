@@ -3,7 +3,16 @@
 import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Upload, X, ImageIcon, VideoIcon, CheckCircle, AlertCircle } from 'lucide-react';
+import {
+  Upload,
+  X,
+  ImageIcon,
+  VideoIcon,
+  CheckCircle,
+  AlertCircle,
+  Sparkles,
+  Camera,
+} from 'lucide-react';
 import { useCloudinaryUpload } from '@/hooks/useCloudinaryUpload';
 
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'video/mp4', 'video/quicktime'];
@@ -23,19 +32,23 @@ export function AvatarUploadForm() {
   const [isDragging, setIsDragging] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // 'generate' = animate with AI (default), 'photo' = use image as-is
+  const [imageMode, setImageMode] = useState<'generate' | 'photo'>('generate');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Refs so callbacks always see latest name/file without stale closure
   const nameRef = useRef(name);
   nameRef.current = name;
   const fileRef = useRef(file);
   fileRef.current = file;
+  const imageModeRef = useRef(imageMode);
+  imageModeRef.current = imageMode;
 
-  // Called by useCloudinaryUpload after Cloudinary upload succeeds
   const handleUploadSuccess = useCallback(
     async (cloudUrl: string) => {
       if (!session?.accessToken) return;
-      const inputType = fileRef.current?.type.startsWith('video') ? 'video' : 'image';
+      const currentFile = fileRef.current;
+      const inputType = currentFile?.type.startsWith('video') ? 'video' : 'image';
+      const skipProcessing = inputType === 'image' && imageModeRef.current === 'photo';
 
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/avatars`, {
@@ -44,7 +57,12 @@ export function AvatarUploadForm() {
             Authorization: `Bearer ${session.accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ name: nameRef.current, rawUrl: cloudUrl, inputType }),
+          body: JSON.stringify({
+            name: nameRef.current,
+            rawUrl: cloudUrl,
+            inputType,
+            skipProcessing,
+          }),
         });
 
         const json = await res.json();
@@ -125,6 +143,7 @@ export function AvatarUploadForm() {
     if (inputRef.current) inputRef.current.value = '';
   };
 
+  const isImage = file ? !file.type.startsWith('video') : false;
   const isUploading = uploadState === 'uploading';
   const isSuccess = uploadState === 'success';
 
@@ -146,6 +165,51 @@ export function AvatarUploadForm() {
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
+
+      {/* Image mode toggle — only visible when an image file is selected */}
+      {isImage && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-foreground">How do you want to use this photo?</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setImageMode('generate')}
+              className={[
+                'flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-left transition-colors',
+                imageMode === 'generate'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-primary/40',
+              ].join(' ')}
+            >
+              <Sparkles className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium">Generate AI Avatar</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Animate your photo into a lifelike video avatar
+                </p>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setImageMode('photo')}
+              className={[
+                'flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-left transition-colors',
+                imageMode === 'photo'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-primary/40',
+              ].join(' ')}
+            >
+              <Camera className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium">Use Photo Directly</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Use your photo as a reference image in ads
+                </p>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Drop zone */}
       <div
@@ -262,7 +326,9 @@ export function AvatarUploadForm() {
           ? `Uploading… ${progress}%`
           : isSubmitting
             ? 'Saving…'
-            : 'Upload & Create Avatar'}
+            : isImage && imageMode === 'photo'
+              ? 'Upload & Use as Photo'
+              : 'Upload & Create Avatar'}
       </button>
     </form>
   );
