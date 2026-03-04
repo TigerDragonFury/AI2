@@ -877,11 +877,22 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       await job.updateProgress(15);
 
-      // Build reference image list — product first so Sora 2 uses it as the
-      // opening frame; avatar second as the character/person reference.
+      // Reference image order depends on generation mode:
+      // REFERENCE_2_VIDEO (16:9 veo3_fast): order is just style hints, avatar+product both fine.
+      // FIRST_AND_LAST_FRAMES_2_VIDEO (portrait/other): first image = literal opening frame,
+      //   second image = literal closing frame. Put product first (opens on product in fresh
+      //   scene context) and avatar second (ends on creator) for best results.
+      const isFirstLastMode = !(models.klingVeoModel === 'veo3_fast' && aspectRatioStr === '16:9');
       const klingRefs: string[] = [];
-      if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
-      if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
+      if (isFirstLastMode) {
+        // Product as opening frame, avatar as closing frame
+        if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
+        if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
+      } else {
+        // REFERENCE_2_VIDEO — avatar first (character anchor), product second
+        if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
+        if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
+      }
 
       console.log(
         `[adWorker] Kling Veo — model=${models.klingVeoModel}, ` +
@@ -905,7 +916,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
           klingPrompt,
           klingRefs,
           klingKey,
-          aspectRatioStr
+          aspectRatioStr,
+          adDuration
         );
         // TTL: 4 hours — survives multiple 30-min retry cycles
         await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 14400);

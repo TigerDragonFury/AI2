@@ -116,8 +116,12 @@ export async function submitKlingVeoLegacy(
   prompt: string,
   imageUrls: string[],
   apiKey: string,
-  aspectRatio: string = '9:16'
+  aspectRatio: string = '9:16',
+  durationSec: number = 8
 ): Promise<string> {
+  // Veo 3.1 has no native duration parameter — the model always outputs ~8 seconds.
+  // Injecting it into the prompt is the only lever we have to influence clip length.
+  const durationHint = `The video must be exactly ${Math.round(durationSec)} seconds long. `;
   const validUrls = imageUrls.filter(Boolean).slice(0, 3);
   let generationType: string;
   let submittedUrls = validUrls;
@@ -145,7 +149,7 @@ export async function submitKlingVeoLegacy(
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      prompt,
+      prompt: durationHint + prompt,
       ...(submittedUrls.length > 0 && { imageUrls: submittedUrls }),
       model,
       generationType,
