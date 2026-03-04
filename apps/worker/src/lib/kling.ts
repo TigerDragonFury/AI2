@@ -15,6 +15,11 @@
  * Set env: KLING_API_KEY=<kie.ai API key>   AI_PROVIDER=kling
  */
 
+import { execFile } from 'child_process';
+import { mkdtemp, writeFile, rm, readFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
 const KLING_BASE = 'https://api.kie.ai';
 const POLL_INTERVAL_MS = 5_000; // 5 s between polls
 const MAX_POLLS = 360; // 30 minutes max — Kie.ai's nominal window is 20 min but
@@ -72,6 +77,37 @@ async function downloadVideo(url: string): Promise<Buffer> {
   const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`Video download error ${res.status}: ${url}`);
   return Buffer.from(await res.arrayBuffer());
+}
+
+/**
+ * Concatenate two MP4 buffers using ffmpeg's concat demuxer.
+ * Produces a single MP4 with both clips joined losslessly (-c copy).
+ * Requires ffmpeg to be on PATH (standard on Render/Linux).
+ */
+export async function concatVideos(buf1: Buffer, buf2: Buffer): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), 'veo-concat-'));
+  const f1 = join(dir, 'part1.mp4');
+  const f2 = join(dir, 'part2.mp4');
+  const listFile = join(dir, 'list.txt');
+  const outFile = join(dir, 'merged.mp4');
+  try {
+    await Promise.all([writeFile(f1, buf1), writeFile(f2, buf2)]);
+    await writeFile(listFile, `file '${f1}'\nfile '${f2}'\n`);
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        'ffmpeg',
+        ['-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', '-y', outFile],
+        { timeout: 120_000 },
+        (err, _stdout, stderr) => {
+          if (err) reject(new Error(`ffmpeg concat failed: ${stderr || err.message}`));
+          else resolve();
+        }
+      );
+    });
+    return await readFile(outFile);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 // ─── Legacy Veo path ─────────────────────────────────────────────────────────
