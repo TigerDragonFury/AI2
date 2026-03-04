@@ -49,7 +49,10 @@ function AvatarCard({ avatar, onDelete }: { avatar: Avatar; onDelete: (id: strin
     <div className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
       {/* Thumbnail area */}
       <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-muted">
-        {avatar.avatarVideoUrl ? (
+        {avatar.inputType === 'image' && avatar.rawUrl ? (
+          // Always show the uploaded photo for image-type avatars
+          <img src={avatar.rawUrl} alt={avatar.name} className="h-full w-full object-cover" />
+        ) : avatar.inputType === 'video' && avatar.avatarVideoUrl ? (
           <video
             src={avatar.avatarVideoUrl}
             className="h-full w-full object-cover"
