@@ -86,7 +86,7 @@ export async function klingVeoPoll(
 
     const res = await fetch(`${KLING_BASE}/api/v1/veo/record-info?taskId=${taskId}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`Kling Veo poll error ${res.status}: ${await res.text()}`);
 
@@ -115,7 +115,8 @@ export async function submitKlingVeoLegacy(
   model: string,
   prompt: string,
   imageUrls: string[],
-  apiKey: string
+  apiKey: string,
+  aspectRatio: string = '9:16'
 ): Promise<string> {
   const validUrls = imageUrls.filter(Boolean).slice(0, 3);
   let generationType: string;
@@ -145,7 +146,7 @@ export async function submitKlingVeoLegacy(
       ...(submittedUrls.length > 0 && { imageUrls: submittedUrls }),
       model,
       generationType,
-      aspect_ratio: '16:9',
+      aspect_ratio: aspectRatio,
       enableTranslation: false,
     }),
     signal: AbortSignal.timeout(60_000),
