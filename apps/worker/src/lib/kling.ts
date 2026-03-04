@@ -173,6 +173,35 @@ export async function submitKlingVeoLegacy(
   return json.data.taskId;
 }
 
+/**
+ * Extend an existing Veo 3.1 video by ~8 s using the /api/v1/veo/extend endpoint.
+ * Returns the new taskId which can be polled with klingVeoPoll (same record-info endpoint).
+ */
+export async function submitKlingVeoExtend(
+  /** taskId returned from the ORIGINAL generation (submitKlingVeoLegacy) */
+  originalTaskId: string,
+  prompt: string,
+  /** 'fast' for veo3_fast, 'quality' for veo3 */
+  model: 'fast' | 'quality',
+  apiKey: string
+): Promise<string> {
+  console.log(`[Kling/Veo] Submitting extend for task=${originalTaskId}, model=${model}`);
+  const res = await fetch(`${KLING_BASE}/api/v1/veo/extend`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId: originalTaskId, prompt, model }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`Kling Veo extend submit error ${res.status}: ${await res.text()}`);
+
+  const json = (await res.json()) as VeoSubmitResponse;
+  if (json.code !== 200 || !json.data?.taskId) {
+    throw new Error(`Kling Veo extend submit failed (code ${json.code}): ${json.msg}`);
+  }
+  console.log(`[Kling/Veo] Extend task submitted: ${json.data.taskId}`);
+  return json.data.taskId;
+}
+
 // ─── Unified API path ────────────────────────────────────────────────────────
 
 /** Poll a Kie.ai task until done and return the video URL. */
