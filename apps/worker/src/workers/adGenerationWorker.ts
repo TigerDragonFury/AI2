@@ -877,21 +877,20 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       await job.updateProgress(15);
 
-      // Reference image order depends on generation mode:
-      // REFERENCE_2_VIDEO (16:9 veo3_fast): order is just style hints, avatar+product both fine.
-      // FIRST_AND_LAST_FRAMES_2_VIDEO (portrait/other): first image = literal opening frame,
-      //   second image = literal closing frame. Put product first (opens on product in fresh
-      //   scene context) and avatar second (ends on creator) for best results.
-      const isFirstLastMode = !(models.klingVeoModel === 'veo3_fast' && aspectRatioStr === '16:9');
+      // Reference image strategy:
+      // veo3_fast → REFERENCE_2_VIDEO: images are style/character references, NOT anchor frames.
+      //   Send avatar first (character identity), then product (visual context). The model
+      //   generates a fresh scene; it does NOT show these images as literal video frames.
+      // veo3 (quality) → FIRST_AND_LAST_FRAMES_2_VIDEO: images ARE literal anchor frames.
+      //   Only send the avatar — never the product — to avoid a static product shot as
+      //   the opening frame. The prompt describes the product visually instead.
       const klingRefs: string[] = [];
-      if (isFirstLastMode) {
-        // Product as opening frame, avatar as closing frame
-        if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
+      if (models.klingVeoModel === 'veo3_fast') {
         if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
+        if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
       } else {
-        // REFERENCE_2_VIDEO — avatar first (character anchor), product second
+        // veo3 quality — only avatar as character anchor
         if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
-        if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
       }
 
       console.log(

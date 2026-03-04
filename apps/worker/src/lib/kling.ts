@@ -127,14 +127,20 @@ export async function submitKlingVeoLegacy(
   let submittedUrls = validUrls;
 
   if (validUrls.length > 0) {
-    if (model === 'veo3_fast' && aspectRatio === '16:9') {
-      // REFERENCE_2_VIDEO supports up to 3 images but is locked to 16:9 by Kie.ai.
-      // For any other aspect ratio (9:16, 1:1) we must use FIRST_AND_LAST_FRAMES_2_VIDEO.
+    if (model === 'veo3_fast') {
+      // REFERENCE_2_VIDEO treats images as character/style references — NOT anchor frames.
+      // This is the correct mode for ads: the model generates a new cinematic scene using
+      // the images as visual context, ignoring their backgrounds.
+      // Kie.ai docs table confirms REFERENCE_2_VIDEO supports both 16:9 and 9:16 for veo3_fast.
       generationType = 'REFERENCE_2_VIDEO';
+      submittedUrls = validUrls.slice(0, 3);
     } else {
-      // FIRST_AND_LAST_FRAMES_2_VIDEO supports all aspect ratios and up to 2 images.
+      // veo3 (quality) does not support REFERENCE_2_VIDEO.
+      // FIRST_AND_LAST_FRAMES_2_VIDEO uses images as literal anchor frames, so only pass
+      // the avatar (character reference). Never pass the product image here — it would
+      // appear as a literal static frame at the start of the video.
       generationType = 'FIRST_AND_LAST_FRAMES_2_VIDEO';
-      submittedUrls = validUrls.slice(0, 2);
+      submittedUrls = validUrls.slice(0, 1); // only avatar
     }
   } else {
     generationType = 'TEXT_2_VIDEO';
