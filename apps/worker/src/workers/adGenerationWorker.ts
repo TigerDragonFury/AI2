@@ -433,7 +433,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
               bv,
               adDuration,
               models.kieVisionModel,
-              klingKey
+              klingKey,
+              aspectRatioStr
             );
             console.log(`[adWorker] Cinematic prompt ready (${enhancedPrompt.length} chars)`);
             await prisma.ad.update({ where: { id: adId }, data: { enhancedPrompt } });
@@ -866,6 +867,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       let klingPrompt =
         'The video opens with immediate natural motion — no freeze frame, no static opening. ' +
+        'The creator appears in a completely new scene — the original background from any reference ' +
+        'image is entirely replaced by the environment described in this prompt. ' +
         enhancedPrompt;
       if (klingDialogueText)
         klingPrompt += `\n\nSpoken dialogue (${spokenLang}): "${klingDialogueText}"`;

@@ -498,25 +498,36 @@ export async function kieCinematicPrompt(
   brandVoice: string | undefined,
   durationSec: number,
   model: string,
-  apiKey: string
+  apiKey: string,
+  aspectRatio: string = '9:16'
 ): Promise<string> {
   const t1 = Math.round(durationSec * 0.25);
   const t2 = Math.round(durationSec * 0.5);
   const t3 = Math.round(durationSec * 0.75);
+  const formatLabel =
+    aspectRatio === '16:9'
+      ? 'landscape 16:9'
+      : aspectRatio === '1:1'
+        ? 'square 1:1'
+        : 'portrait 9:16';
 
   const systemInstruction =
     `You are an expert film director and UGC video ad specialist. ` +
     `Transform the provided scene description into a single cohesive video generation prompt ` +
     `structured as a cinematic timeline. The output must be plain text — NO markdown, NO bullet ` +
     `list symbols, NO headers. Write it as a single block a video model can parse directly.\n\n` +
+    `CRITICAL — Background & Scene: The reference image provides ONLY the creator's appearance ` +
+    `and identity. Their original background must be COMPLETELY REPLACED by a new, vivid, ` +
+    `specific environment that serves the product story. Describe this new setting in rich ` +
+    `detail — lighting, surfaces, atmosphere, depth — so the video model renders a fresh scene.\n\n` +
     `Required structure (fill in the brackets — do NOT include the bracket labels in output):\n` +
-    `[VIBE: energetic/luxury/playful/warm/authoritative] [FORMAT: portrait 9:16] ` +
+    `[VIBE: energetic/luxury/playful/warm/authoritative] [FORMAT: ${formatLabel}] ` +
     `[GENRE: UGC creator-style cinematic ad] — ` +
-    `[0–${t1}s hook: opening action + camera motion + lighting mood] — ` +
-    `[${t1}–${t2}s context: creator introduces or interacts with product] — ` +
+    `[0–${t1}s hook: opening action + camera motion + lighting mood in the NEW scene] — ` +
+    `[${t1}–${t2}s context: creator introduces or interacts with product in the described environment] — ` +
     `[${t2}–${t3}s climax: key benefit close-up, product hero shot, emotion peak] — ` +
     `[${t3}–${durationSec}s resolution: authentic reaction, soft CTA or brand close] — ` +
-    `[scene narrative: 1–2 sentence total description tying everything together]`;
+    `[scene narrative: 1–2 sentence description of the NEW environment and how it enhances the product story]`;
 
   const userContent =
     `Product: ${productName}\n` +
