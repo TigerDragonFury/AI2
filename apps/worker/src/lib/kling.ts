@@ -123,9 +123,12 @@ export async function submitKlingVeoLegacy(
   let submittedUrls = validUrls;
 
   if (validUrls.length > 0) {
-    if (model === 'veo3_fast') {
-      generationType = 'REFERENCE_2_VIDEO'; // up to 3 reference images
+    if (model === 'veo3_fast' && aspectRatio === '16:9') {
+      // REFERENCE_2_VIDEO supports up to 3 images but is locked to 16:9 by Kie.ai.
+      // For any other aspect ratio (9:16, 1:1) we must use FIRST_AND_LAST_FRAMES_2_VIDEO.
+      generationType = 'REFERENCE_2_VIDEO';
     } else {
+      // FIRST_AND_LAST_FRAMES_2_VIDEO supports all aspect ratios and up to 2 images.
       generationType = 'FIRST_AND_LAST_FRAMES_2_VIDEO';
       submittedUrls = validUrls.slice(0, 2);
     }
