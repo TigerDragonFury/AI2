@@ -91,6 +91,28 @@ async function downloadVideo(url: string): Promise<Buffer> {
  * Uses ffmpeg filter_complex when trimming; falls back to the concat demuxer
  * (-c copy, lossless) when no trimming is needed.
  */
+/** Probe whether a saved video file has at least one audio stream via ffprobe. */
+async function hasAudio(filePath: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    execFile(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-select_streams',
+        'a:0',
+        '-show_entries',
+        'stream=codec_type',
+        '-of',
+        'csv=p=0',
+        filePath,
+      ],
+      { timeout: 15_000 },
+      (_err, stdout) => resolve(stdout.trim().length > 0)
+    );
+  });
+}
+
 export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Promise<Buffer> {
   if (buffers.length === 1) return buffers[0];
 
@@ -107,6 +129,13 @@ export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Pr
 
     const N = filePaths.length;
     const trimSec = trimExtStartSec > 0 ? trimExtStartSec : 0;
+
+    // Probe all segments for audio — skip audio filters entirely if any segment lacks audio.
+    const audioFlags = await Promise.all(filePaths.map(hasAudio));
+    const withAudio = audioFlags.every(Boolean);
+    console.log(
+      `[concatVideos] N=${N} trimSec=${trimSec} hasAudio=${withAudio} (per-seg: ${audioFlags.join(',')})`
+    );
 
     if (trimSec <= 0) {
       // Fast lossless path — no trimming needed
@@ -132,17 +161,32 @@ export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Pr
       for (let i = 0; i < N; i++) {
         if (i === 0) {
           fc.push(`[0:v]setpts=PTS-STARTPTS[v0]`);
-          fc.push(`[0:a]asetpts=PTS-STARTPTS[a0]`);
+          if (withAudio) fc.push(`[0:a]asetpts=PTS-STARTPTS[a0]`);
         } else {
           fc.push(`[${i}:v]trim=start=${trimSec},setpts=PTS-STARTPTS[v${i}]`);
-          fc.push(`[${i}:a]atrim=start=${trimSec},asetpts=PTS-STARTPTS[a${i}]`);
+          if (withAudio) fc.push(`[${i}:a]atrim=start=${trimSec},asetpts=PTS-STARTPTS[a${i}]`);
         }
         vLabels.push(`[v${i}]`);
-        aLabels.push(`[a${i}]`);
+        if (withAudio) aLabels.push(`[a${i}]`);
       }
 
-      const pairs = vLabels.map((v, i) => v + aLabels[i]).join('');
-      fc.push(`${pairs}concat=n=${N}:v=1:a=1[vout][aout]`);
+      let concatFilter: string;
+      let mapArgs: string[];
+      let audioEncodeArgs: string[];
+      if (withAudio) {
+        const pairs = vLabels.map((v, i) => v + aLabels[i]).join('');
+        concatFilter = `${pairs}concat=n=${N}:v=1:a=1[vout][aout]`;
+        fc.push(concatFilter);
+        mapArgs = ['-map', '[vout]', '-map', '[aout]'];
+        audioEncodeArgs = ['-c:a', 'aac'];
+      } else {
+        // No audio — video-only concat
+        const vPairs = vLabels.join('');
+        concatFilter = `${vPairs}concat=n=${N}:v=1:a=0[vout]`;
+        fc.push(concatFilter);
+        mapArgs = ['-map', '[vout]'];
+        audioEncodeArgs = ['-an'];
+      }
 
       await new Promise<void>((res, rej) =>
         execFile(
@@ -151,18 +195,14 @@ export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Pr
             ...inputs,
             '-filter_complex',
             fc.join(';'),
-            '-map',
-            '[vout]',
-            '-map',
-            '[aout]',
+            ...mapArgs,
             '-c:v',
             'libx264',
             '-preset',
             'fast',
             '-crf',
             '18',
-            '-c:a',
-            'aac',
+            ...audioEncodeArgs,
             '-movflags',
             '+faststart',
             '-y',

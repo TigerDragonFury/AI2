@@ -139,15 +139,25 @@ async function runVeoExtendLoop(
   }
 
   // Download all parts, trim 0.5 s off each extension to remove boundary duplicates
+  console.log(`[adWorker] Downloading ${state.partUrls.length} Veo parts for concat...`);
   const partBufs = await Promise.all(
-    state.partUrls.map((url) =>
+    state.partUrls.map((url, i) =>
       fetch(url, { signal: AbortSignal.timeout(120_000) })
-        .then((r) => r.arrayBuffer())
-        .then((a) => Buffer.from(a))
+        .then((r) => {
+          if (!r.ok) throw new Error(`Part ${i} download error ${r.status}: ${url}`);
+          return r.arrayBuffer();
+        })
+        .then((a) => {
+          const buf = Buffer.from(a);
+          console.log(`[adWorker] Part ${i} downloaded: ${(buf.length / 1_048_576).toFixed(1)} MB`);
+          return buf;
+        })
     )
   );
+  console.log(`[adWorker] Concatenating ${partBufs.length} parts with ffmpeg...`);
   // trimExtStartSec=0.5: removes the overlapping ~0.5 s Veo adds at each extension boundary
   const merged = await concatVideos(partBufs, 0.5);
+  console.log(`[adWorker] Concat done: ${(merged.length / 1_048_576).toFixed(1)} MB`);
   await redisConnection.del(kieExtendStateKey);
   return merged;
 }
@@ -1229,9 +1239,10 @@ async function processAdJob(job: Job<{ adId: string }>) {
           if (extendErrMsg.includes('timed out')) throw extendErr;
           await redisConnection.del(`kie:extendTask:${adId}`);
           console.warn(
-            `[adWorker] Veo extend failed — falling back to initial ~8 s clip:`,
+            `[adWorker] Veo extend/concat failed — falling back to initial ~8 s clip:`,
             extendErrMsg
           );
+          console.warn(`[adWorker] Full extend error:`, extendErr);
         }
       }
 
