@@ -63,6 +63,7 @@ export interface Ad {
   rawPrompt: string;
   enhancedPrompt: string | null;
   aspectRatio: AspectRatio;
+  duration: number;
   generatedVideoUrl: string | null;
   status: AdStatus;
   errorMessage: string | null;
