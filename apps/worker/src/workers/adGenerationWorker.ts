@@ -1402,14 +1402,13 @@ export const adGenerationWorker = new Worker<{ adId: string }>(
     drainDelay: 5_000,
     // Stalled-job check: every 60s — fast recovery after Render deploys.
     stalledInterval: 60_000,
-    // Lock duration: 60s. BullMQ auto-renews every 30s while the worker is alive.
-    // 30s renewals are trivially safe — the polling loop runs every 15s and the
-    // initial LLM/vision phase never exceeds ~60s in practice.
-    // If the process dies (Render redeploy), the lock expires in at most 60s,
-    // minimising the gap before the stall check re-queues the job. This is
-    // important because Kie.ai has a ~20-min generation window — a 5-min delay
-    // would eat 25% of that budget.
-    lockDuration: 60_000,
+    // Lock duration: 5 min. Veo jobs can take 10-20 min; BullMQ auto-renews
+    // every lockDuration/2 = 150s. A 5-min lock means the Redis connection can
+    // be offline for up to ~150s before the lock expires (Redis upgrades on
+    // Render typically take 30-90s). Combined with indefinite retry strategy
+    // and enableOfflineQueue=true, lock renewals will be queued and flushed
+    // once the connection recovers — avoiding false stall failures.
+    lockDuration: 300_000,
     // Allow up to 3 stall events before moving a job to failed.
     // Render deploys kill the process mid-poll; the new instance resumes via
     // the Redis kieTaskId key — so each stall is a safe, resumable restart.

@@ -4,14 +4,25 @@ export const redisConnection = new IORedis(process.env.REDIS_URL ?? 'redis://loc
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   lazyConnect: true,
+  // Retry indefinitely with exponential backoff (cap 10s) + jitter.
+  // This ensures workers survive Render Redis upgrades/restarts without
+  // permanently losing the connection.
   retryStrategy: (times) => {
-    if (times > 3) {
-      console.warn('[redis] Redis unavailable — worker queues disabled');
-      return null;
-    }
-    return Math.min(times * 500, 2000);
+    const base = Math.min(times * 500, 10_000);
+    const jitter = Math.floor(Math.random() * 1000);
+    return base + jitter;
   },
-  enableOfflineQueue: false,
+  // Queue commands while disconnected — critical for BullMQ lock renewals
+  // during a transient Redis restart (otherwise renewals throw and jobs stall).
+  enableOfflineQueue: true,
+  // Reconnect on READONLY errors that occur during Redis primary failover.
+  reconnectOnError: (err) => {
+    const msg = err.message.toUpperCase();
+    return msg.includes('READONLY') || msg.includes('LOADING');
+  },
+  // Keep the TCP connection alive to detect drops quickly.
+  keepAlive: 10_000,
+  connectTimeout: 20_000,
 });
 
 redisConnection.on('error', (err) => {
@@ -20,4 +31,8 @@ redisConnection.on('error', (err) => {
 
 redisConnection.on('connect', () => {
   console.log('[redis] Connected');
+});
+
+redisConnection.on('reconnecting', () => {
+  console.log('[redis] Reconnecting…');
 });

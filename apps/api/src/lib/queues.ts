@@ -7,10 +7,16 @@ const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:
   maxRetriesPerRequest: null,
   lazyConnect: true,
   retryStrategy: (times) => {
-    if (times > 2) return null;
-    return Math.min(times * 500, 2000);
+    const base = Math.min(times * 500, 10_000);
+    return base + Math.floor(Math.random() * 500);
   },
-  enableOfflineQueue: false,
+  enableOfflineQueue: true,
+  reconnectOnError: (err) => {
+    const msg = err.message.toUpperCase();
+    return msg.includes('READONLY') || msg.includes('LOADING');
+  },
+  keepAlive: 10_000,
+  connectTimeout: 20_000,
 });
 redisConnection.on('error', (err) => console.error('[queues] Redis error:', err.message));
 
