@@ -80,24 +80,29 @@ async function downloadVideo(url: string): Promise<Buffer> {
 }
 
 /**
- * Concatenate two MP4 buffers using ffmpeg's concat demuxer.
- * Produces a single MP4 with both clips joined losslessly (-c copy).
- * Requires ffmpeg to be on PATH (standard on Render/Linux).
+ * Concatenate N MP4 buffers in order using ffmpeg's concat demuxer.
+ * Produces a single lossless (-c copy) MP4. Requires ffmpeg on PATH.
+ * If only one buffer is provided, returns it unchanged.
  */
-export async function concatVideos(buf1: Buffer, buf2: Buffer): Promise<Buffer> {
+export async function concatVideos(buffers: Buffer[]): Promise<Buffer> {
+  if (buffers.length === 1) return buffers[0];
   const dir = await mkdtemp(join(tmpdir(), 'veo-concat-'));
-  const f1 = join(dir, 'part1.mp4');
-  const f2 = join(dir, 'part2.mp4');
-  const listFile = join(dir, 'list.txt');
   const outFile = join(dir, 'merged.mp4');
+  const listFile = join(dir, 'list.txt');
   try {
-    await Promise.all([writeFile(f1, buf1), writeFile(f2, buf2)]);
-    await writeFile(listFile, `file '${f1}'\nfile '${f2}'\n`);
+    const filePaths = await Promise.all(
+      buffers.map(async (buf, i) => {
+        const p = join(dir, `part${i}.mp4`);
+        await writeFile(p, buf);
+        return p;
+      })
+    );
+    await writeFile(listFile, filePaths.map((p) => `file '${p}'`).join('\n') + '\n');
     await new Promise<void>((resolve, reject) => {
       execFile(
         'ffmpeg',
         ['-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', '-y', outFile],
-        { timeout: 120_000 },
+        { timeout: 180_000 },
         (err, _stdout, stderr) => {
           if (err) reject(new Error(`ffmpeg concat failed: ${stderr || err.message}`));
           else resolve();
@@ -595,14 +600,18 @@ export async function kieCinematicPrompt(
     `and identity. Their original background must be COMPLETELY REPLACED by a new, vivid, ` +
     `specific environment that serves the product story. Describe this new setting in rich ` +
     `detail — lighting, surfaces, atmosphere, depth — so the video model renders a fresh scene.\n\n` +
-    `Required structure (fill in the brackets — do NOT include the bracket labels in output):\n` +
-    `[VIBE: energetic/luxury/playful/warm/authoritative] [FORMAT: ${formatLabel}] ` +
-    `[GENRE: UGC creator-style cinematic ad] — ` +
-    `[0–${t1}s hook: opening action + camera motion + lighting mood in the NEW scene] — ` +
-    `[${t1}–${t2}s context: creator introduces or interacts with product in the described environment] — ` +
-    `[${t2}–${t3}s climax: key benefit close-up, product hero shot, emotion peak] — ` +
-    `[${t3}–${durationSec}s resolution: authentic reaction, soft CTA or brand close] — ` +
-    `[scene narrative: 1–2 sentence description of the NEW environment and how it enhances the product story]`;
+    `STRICT RULES — MUST FOLLOW:\n` +
+    `1. NEVER render on-screen text, captions, subtitles, price tags, banners, or graphic overlays.\n` +
+    `2. All spoken words must be in the language specified by the caller — never default to English.\n` +
+    `3. PERFECT LIP SYNC: describe natural expressive mouth movements matching every syllable.\n` +
+    `4. Cinematic camera work: push-ins, rack-focus, close-ups, Dutch angles, slow-motion moments.\n\n` +
+    `Required structure (fill in — do NOT output the bracket labels):\n` +
+    `[VIBE: energetic/luxury/playful/warm/bold] [FORMAT: ${formatLabel}] [GENRE: UGC cinematic ad] — ` +
+    `[0–${t1}s HOOK: explosive opening action, dynamic camera motion, vivid lighting in new scene] — ` +
+    `[${t1}–${t2}s CONTEXT: creator interacts with product, speaks to camera, tight framing] — ` +
+    `[${t2}–${t3}s CLIMAX: key benefit close-up, product hero shot, peak emotion, rack-focus] — ` +
+    `[${t3}–${durationSec}s RESOLUTION: authentic satisfied reaction, soft CTA spoken to camera] — ` +
+    `[SCENE: 2-sentence vivid environment description that elevates the product story]`;
 
   const userContent =
     `Product: ${productName}\n` +

@@ -241,9 +241,10 @@ const ASPECT_RATIOS: { value: AspectRatio; label: string; description: string }[
 ];
 
 const DURATIONS = [
-  { value: 5, label: '5s', note: 'Standard' },
-  { value: 10, label: '10s', note: 'Recommended' },
-  { value: 15, label: '15s', note: 'Long-form' },
+  { value: 8, label: '8s', note: 'Quick' },
+  { value: 16, label: '16s', note: 'Standard' },
+  { value: 24, label: '24s', note: 'Long' },
+  { value: 32, label: '32s', note: 'Max' },
 ];
 
 function PromptStep({
@@ -375,7 +376,9 @@ function PromptStep({
             </button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">wan2.6-i2v supports 5–15 seconds.</p>
+        <p className="text-xs text-muted-foreground">
+          Veo 3.1: each 8 s segment = 1 generation credit.
+        </p>
       </div>
     </div>
   );
@@ -496,7 +499,7 @@ export function AdCreatorWizard() {
   const [productId, setProductId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
-  const [duration, setDuration] = useState(10);
+  const [duration, setDuration] = useState(16);
   const [autoPrompt, setAutoPrompt] = useState(true);
   const [autoDialogue, setAutoDialogue] = useState(true);
   const [dialogueText, setDialogueText] = useState('');

@@ -95,6 +95,56 @@ async function pollHuggingFaceJob(jobUrl: string, hfToken: string): Promise<Arra
 }
 
 /**
+ * Run Veo extend loop with crash recovery.
+ * Submits extend tasks until `state.partUrls.length - 1 === state.numExtensions`,
+ * then downloads all parts and returns a concatenated Buffer.
+ *
+ * Redis keys used:
+ *   kie:extendState:{adId} — full loop state (survives redeploys)
+ *   kie:extendTask:{adId}  — taskId currently being polled
+ */
+async function runVeoExtendLoop(
+  adId: string,
+  state: { numExtensions: number; partUrls: string[]; prevTaskId: string },
+  model: 'fast' | 'quality',
+  continuationPrompt: string,
+  klingKey: string,
+  onProgress: (pct: number) => void
+): Promise<Buffer> {
+  const kieExtendStateKey = `kie:extendState:${adId}`;
+  const kieActiveExtendKey = `kie:extendTask:${adId}`;
+  await redisConnection.set(kieExtendStateKey, JSON.stringify(state), 'EX', 14400);
+
+  while (state.partUrls.length - 1 < state.numExtensions) {
+    let activeId = await redisConnection.get(kieActiveExtendKey);
+    if (!activeId) {
+      activeId = await submitKlingVeoExtend(state.prevTaskId, continuationPrompt, model, klingKey);
+      await redisConnection.set(kieActiveExtendKey, activeId, 'EX', 14400);
+    }
+    const extUrl = await klingVeoPoll(activeId, klingKey, onProgress);
+    state.prevTaskId = activeId;
+    state.partUrls.push(extUrl);
+    await redisConnection.del(kieActiveExtendKey);
+    await redisConnection.set(kieExtendStateKey, JSON.stringify(state), 'EX', 14400);
+    console.log(
+      `[adWorker] Veo extend ${state.partUrls.length - 1}/${state.numExtensions} done: ${extUrl}`
+    );
+  }
+
+  // Download all parts and concat into a single MP4
+  const partBufs = await Promise.all(
+    state.partUrls.map((url) =>
+      fetch(url, { signal: AbortSignal.timeout(120_000) })
+        .then((r) => r.arrayBuffer())
+        .then((a) => Buffer.from(a))
+    )
+  );
+  const merged = await concatVideos(partBufs);
+  await redisConnection.del(kieExtendStateKey);
+  return merged;
+}
+
+/**
  * Process an ad generation job. The queue payload only contains { adId };
  * all other required data is loaded from the database.
  */
@@ -194,57 +244,49 @@ async function processAdJob(job: Job<{ adId: string }>) {
   // submitted (e.g. before a Render redeploy stalled the job). Skip all
   // pre-processing (vision, cinematic, dialogue) and go straight to polling.
   if (provider === 'kling') {
-    // ── Extend task fast-path (takes priority over pendingTask) ─────────────
-    // If a kie:extendTask key exists the initial ~8 s generation already
-    // finished and we are mid-way through the extension poll. Skip everything
-    // and go straight to polling the extend task.
+    // ── Extend task fast-path ─────────────────────────────────────────────────
+    // If kie:extendState exists the initial generation is done and we are
+    // mid-extend. Resume the loop and finalize.
     if (LEGACY_VEO_MODELS.has(models.klingVeoModel)) {
-      const kieExtendKey = `kie:extendTask:${adId}`;
-      const existingExtendId = await redisConnection.get(kieExtendKey);
-      if (existingExtendId) {
-        console.log(
-          `[adWorker] Extend fast-path: polling existing extend task ${existingExtendId}`
-        );
+      const kieExtendStateKey = `kie:extendState:${adId}`;
+      const existingStateJson = await redisConnection.get(kieExtendStateKey);
+      if (existingStateJson) {
+        console.log(`[adWorker] Extend fast-path: resuming extend state for ad ${adId}`);
         const klingKey = await getProviderKey('kling');
         if (!klingKey) throw new Error('KLING_API_KEY not configured');
+        const fpLangMap: Record<string, string> = {
+          en: 'English',
+          ar: 'Arabic',
+          fr: 'French',
+          es: 'Spanish',
+          de: 'German',
+          ja: 'Japanese',
+          ko: 'Korean',
+          zh: 'Chinese',
+        };
+        const fpSpokenLang = fpLangMap[(ad.dialogueLanguage ?? 'en').toLowerCase()] ?? 'English';
+        const veoExtendModel = models.klingVeoModel === 'veo3_fast' ? 'fast' : 'quality';
+        const continuationPrompt =
+          `Continue the scene naturally. Same energy, motion, and speech. ` +
+          `All spoken words in ${fpSpokenLang}. Perfect lip sync. No abrupt changes.`;
         try {
           await job.updateProgress(80);
-          const extendedVideoUrl = await klingVeoPoll(existingExtendId, klingKey, (pct) =>
-            job.updateProgress(80 + Math.floor(pct * 0.15))
+          const extState = JSON.parse(existingStateJson) as {
+            numExtensions: number;
+            partUrls: string[];
+            prevTaskId: string;
+          };
+          const mergedBuf = await runVeoExtendLoop(
+            adId,
+            extState,
+            veoExtendModel,
+            continuationPrompt,
+            klingKey,
+            (pct) => job.updateProgress(80 + Math.floor(pct * 0.18))
           );
-          await redisConnection.del(kieExtendKey);
-          await job.updateProgress(91);
-          // Retrieve the initial clip URL saved before the extend was submitted
-          const savedInitialUrl = await redisConnection.get(`kie:initialUrl:${adId}`);
-          let extFinalBuf: Buffer;
-          if (savedInitialUrl) {
-            const [part1, part2] = await Promise.all([
-              fetch(savedInitialUrl, { signal: AbortSignal.timeout(120_000) })
-                .then((r) => r.arrayBuffer())
-                .then((a) => Buffer.from(a)),
-              fetch(extendedVideoUrl, { signal: AbortSignal.timeout(120_000) })
-                .then((r) => r.arrayBuffer())
-                .then((a) => Buffer.from(a)),
-            ]);
-            extFinalBuf = await concatVideos(part1, part2);
-            await redisConnection.del(`kie:initialUrl:${adId}`);
-            console.log(
-              `[adWorker] Extend fast-path concat complete (~16 s): ${(
-                extFinalBuf.length / 1_048_576
-              ).toFixed(1)} MB`
-            );
-          } else {
-            // No initial URL saved (fallback) — upload extend segment only
-            const extRes = await fetch(extendedVideoUrl, { signal: AbortSignal.timeout(120_000) });
-            if (!extRes.ok)
-              throw new Error(`Veo extend download failed: ${extRes.status}: ${extendedVideoUrl}`);
-            extFinalBuf = Buffer.from(await extRes.arrayBuffer());
-            console.warn(
-              `[adWorker] Extend fast-path: no initial URL in Redis, uploading extend segment only`
-            );
-          }
+          await job.updateProgress(95);
           const extUpload = await cloudinary.uploader.upload(
-            `data:video/mp4;base64,${extFinalBuf.toString('base64')}`,
+            `data:video/mp4;base64,${mergedBuf.toString('base64')}`,
             { resource_type: 'video', folder: CLOUDINARY_FOLDERS.GENERATED_ADS, public_id: adId }
           );
           const generatedVideoUrl = extUpload.secure_url;
@@ -260,14 +302,16 @@ async function processAdJob(job: Job<{ adId: string }>) {
               metadata: { adId },
             },
           });
-          const adUser = await prisma.user.findUnique({
+          const adUser1 = await prisma.user.findUnique({
             where: { id: ad.userId },
             select: { email: true, name: true },
           });
-          if (adUser?.email)
-            sendAdReadyEmail(adUser.email, adUser.name ?? '', adId).catch(console.error);
+          if (adUser1?.email)
+            sendAdReadyEmail(adUser1.email, adUser1.name ?? '', adId).catch(console.error);
           await job.updateProgress(100);
-          console.log(`[adWorker] Ad ${adId} extend fast-path completed successfully`);
+          console.log(
+            `[adWorker] Ad ${adId} extend fast-path done (~${extState.partUrls.length * 8} s)`
+          );
           await redisConnection.del(adMutexKey);
           return;
         } catch (extFastErr) {
@@ -276,14 +320,21 @@ async function processAdJob(job: Job<{ adId: string }>) {
             console.warn(`[adWorker] Extend fast-path timed out — rethrowing for retry`);
             throw extFastErr;
           }
-          // Terminal extend failure — clear key, fall through to re-run
-          await redisConnection.del(kieExtendKey);
-          console.warn(
-            `[adWorker] Extend fast-path terminal failure — clearing extend key:`,
-            extFastErrMsg
-          );
+          await redisConnection.del(`kie:extendTask:${adId}`);
+          console.warn(`[adWorker] Extend fast-path terminal failure:`, extFastErrMsg);
           throw extFastErr;
         }
+      }
+      // Clean up any legacy keys from previous code version
+      const legacyExtend = await redisConnection.get(`kie:extendTask:${adId}`);
+      if (legacyExtend) {
+        await Promise.all([
+          redisConnection.del(`kie:extendTask:${adId}`),
+          redisConnection.del(`kie:initialUrl:${adId}`),
+        ]);
+        console.warn(
+          `[adWorker] Cleared legacy kie:extendTask (no extendState) — re-run will extend fresh`
+        );
       }
     }
 
@@ -312,66 +363,56 @@ async function processAdJob(job: Job<{ adId: string }>) {
         await redisConnection.del(kieTaskKey);
         await job.updateProgress(80);
 
-        // Extend to ~16 s for Legacy Veo models (same logic as main path)
-        let mergedBuf: Buffer | null = null;
-        if (isLegacyVeo) {
-          // Persist the initial URL so the kie:extendTask fast-path can concat on crash recovery
-          await redisConnection.set(`kie:initialUrl:${adId}`, klingVideoUrl, 'EX', 14400);
-          const kieExtendKey = `kie:extendTask:${adId}`;
-          let extendTaskId = await redisConnection.get(kieExtendKey);
+        // Multi-extend for Legacy Veo: 8s→0 extends, 16s→1, 24s→2, 32s→3
+        const fpLangMap2: Record<string, string> = {
+          en: 'English',
+          ar: 'Arabic',
+          fr: 'French',
+          es: 'Spanish',
+          de: 'German',
+          ja: 'Japanese',
+          ko: 'Korean',
+          zh: 'Chinese',
+        };
+        const fpSpokenLang2 = fpLangMap2[(ad.dialogueLanguage ?? 'en').toLowerCase()] ?? 'English';
+        const numExtFP = Math.min(3, Math.max(0, Math.ceil((ad.duration ?? 8) / 8) - 1));
+        let finalBufFP: Buffer | null = null;
+        if (isLegacyVeo && numExtFP > 0) {
           const veoExtendModel = models.klingVeoModel === 'veo3_fast' ? 'fast' : 'quality';
+          const continuationPrompt =
+            `Continue the scene naturally. Same energy, motion, and speech. ` +
+            `All spoken words in ${fpSpokenLang2}. Perfect lip sync. No abrupt changes.`;
+          const initState = {
+            numExtensions: numExtFP,
+            partUrls: [klingVideoUrl],
+            prevTaskId: existingTaskId,
+          };
           try {
-            if (!extendTaskId) {
-              const continuationPrompt =
-                'Continue the scene naturally. The creator carries on with the same energy, ' +
-                'motion, and speech style — maintaining identical lighting, background, and ' +
-                'visual atmosphere. Seamless continuation, no abrupt changes.';
-              extendTaskId = await submitKlingVeoExtend(
-                existingTaskId,
-                continuationPrompt,
-                veoExtendModel,
-                klingKey
-              );
-              await redisConnection.set(kieExtendKey, extendTaskId, 'EX', 14400);
-            } else {
-              console.log(`[adWorker] Fast-path: resuming extend task ${extendTaskId}`);
-            }
-            const extendVideoUrl = await klingVeoPoll(extendTaskId, klingKey, (pct) =>
-              job.updateProgress(80 + Math.floor(pct * 0.15))
+            finalBufFP = await runVeoExtendLoop(
+              adId,
+              initState,
+              veoExtendModel,
+              continuationPrompt,
+              klingKey,
+              (pct) => job.updateProgress(80 + Math.floor(pct * 0.15))
             );
-            await redisConnection.del(kieExtendKey);
-            const [part1, part2] = await Promise.all([
-              fetch(klingVideoUrl, { signal: AbortSignal.timeout(120_000) })
-                .then((r) => r.arrayBuffer())
-                .then((a) => Buffer.from(a)),
-              fetch(extendVideoUrl, { signal: AbortSignal.timeout(120_000) })
-                .then((r) => r.arrayBuffer())
-                .then((a) => Buffer.from(a)),
-            ]);
-            mergedBuf = await concatVideos(part1, part2);
-            await redisConnection.del(`kie:initialUrl:${adId}`);
             console.log(
-              `[adWorker] Fast-path extend+concat complete (~16 s): ${(
-                mergedBuf.length / 1_048_576
+              `[adWorker] Fast-path extend+concat done (~${(numExtFP + 1) * 8} s): ${(
+                finalBufFP.length / 1_048_576
               ).toFixed(1)} MB`
             );
-          } catch (extendErr) {
-            const extendErrMsg = (extendErr as Error).message;
-            if (extendErrMsg.includes('timed out')) {
-              throw extendErr; // preserve key for next retry
-            }
-            await redisConnection.del(kieExtendKey);
-            console.warn(
-              `[adWorker] Fast-path extend failed — using initial 8 s clip:`,
-              extendErrMsg
-            );
-            // mergedBuf stays null — will download klingVideoUrl below
+          } catch (extFP) {
+            const extFPMsg = (extFP as Error).message;
+            if (extFPMsg.includes('timed out')) throw extFP;
+            await redisConnection.del(`kie:extendState:${adId}`);
+            await redisConnection.del(`kie:extendTask:${adId}`);
+            console.warn(`[adWorker] Fast-path extend failed — using initial 8 s clip:`, extFPMsg);
           }
         }
 
         let klingBuf: Buffer;
-        if (mergedBuf) {
-          klingBuf = mergedBuf;
+        if (finalBufFP) {
+          klingBuf = finalBufFP;
         } else {
           const klingRes = await fetch(klingVideoUrl, { signal: AbortSignal.timeout(120_000) });
           if (!klingRes.ok)
@@ -1018,19 +1059,21 @@ async function processAdJob(job: Job<{ adId: string }>) {
         zh: 'Chinese',
       };
       const spokenLang = langNames[klingDialogueLanguage] ?? 'English';
-      const priceLine = dialogueCtx.price
-        ? `Product price mentioned in the video: ${dialogueCtx.price}.`
-        : '';
 
       let klingPrompt =
         'The video opens with immediate natural motion — no freeze frame, no static opening. ' +
         'The creator appears in a completely new scene — the original background from any reference ' +
         'image is entirely replaced by the environment described in this prompt. ' +
+        'STRICT: No on-screen text, captions, subtitles, price overlays, or graphic titles. ' +
         enhancedPrompt;
-      if (klingDialogueText)
-        klingPrompt += `\n\nSpoken dialogue (${spokenLang}): "${klingDialogueText}"`;
-      klingPrompt += `\nThe creator speaks naturally in ${spokenLang} throughout the video.`;
-      if (priceLine) klingPrompt += `\n${priceLine}`;
+      if (klingDialogueText) {
+        klingPrompt += `\n\nSpoken dialogue in ${spokenLang}: "${klingDialogueText}"`;
+        klingPrompt +=
+          `\nThe creator delivers every word in perfect ${spokenLang} lip sync — ` +
+          `each syllable is visibly matched by natural, expressive mouth movements.`;
+      } else {
+        klingPrompt += `\nThe creator speaks naturally in ${spokenLang} with perfect lip sync.`;
+      }
 
       await job.updateProgress(15);
 
@@ -1045,6 +1088,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
       if (models.klingVeoModel === 'veo3_fast') {
         if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
         if (productImageUrls[0]) klingRefs.push(productImageUrls[0]);
+        // Add brand logo as 3rd visual reference when available (REFERENCE_2_VIDEO supports up to 3)
+        if (ad.user?.companyLogoUrl) klingRefs.push(ad.user.companyLogoUrl);
       } else {
         // veo3 quality — only avatar as character anchor
         if (avatarInputType === 'image' && avatarRawUrl) klingRefs.push(avatarRawUrl);
@@ -1119,63 +1164,44 @@ async function processAdJob(job: Job<{ adId: string }>) {
 
       await job.updateProgress(80);
 
-      // ── Extend to ~16 s for Legacy Veo models ─────────────────────────────
-      // Veo 3.1 natively outputs ~8 s. We submit an extend task, download
-      // both segments, then concatenate them with ffmpeg → single ~16 s clip.
-      const initialKlingVideoUrl = klingVideoUrl; // never overwritten
+      // ── Extend to target duration ────────────────────────────────────────────
+      // 8s → 0 extends, 16s → 1, 24s → 2, 32s → 3
+      const numExtensions = Math.min(3, Math.max(0, Math.ceil(adDuration / 8) - 1));
+      const initialKlingVideoUrl = klingVideoUrl;
       let finalKlingBuffer: Buffer | null = null;
-      if (LEGACY_VEO_MODELS.has(models.klingVeoModel)) {
-        // Persist initial URL so kie:extendTask fast-path can concat on crash recovery
-        await redisConnection.set(`kie:initialUrl:${adId}`, klingVideoUrl, 'EX', 14400);
-        const kieExtendKey = `kie:extendTask:${adId}`;
-        let extendTaskId = await redisConnection.get(kieExtendKey);
+      if (LEGACY_VEO_MODELS.has(models.klingVeoModel) && numExtensions > 0) {
         const veoExtendModel = models.klingVeoModel === 'veo3_fast' ? 'fast' : 'quality';
+        const continuationPrompt =
+          `Continue the scene naturally. The creator carries on with the same energy, motion, and speech — ` +
+          `maintaining identical lighting, background, and visual atmosphere. ` +
+          `All spoken words in ${spokenLang}. Perfect lip sync. No abrupt changes.`;
+        const initState = {
+          numExtensions,
+          partUrls: [klingVideoUrl],
+          prevTaskId: klingTaskId,
+        };
         try {
-          if (!extendTaskId) {
-            const continuationPrompt =
-              `Continue the scene naturally. The creator carries on with the same energy, ` +
-              `motion, and speech — maintaining identical lighting, background, and ` +
-              `visual atmosphere. All spoken words must be in ${spokenLang}. ` +
-              `Seamless continuation, no abrupt changes.`;
-            extendTaskId = await submitKlingVeoExtend(
-              klingTaskId,
-              continuationPrompt,
-              veoExtendModel,
-              klingKey
-            );
-            await redisConnection.set(kieExtendKey, extendTaskId, 'EX', 14400);
-          } else {
-            console.log(`[adWorker] Resuming Veo extend task: ${extendTaskId}`);
-          }
-          const extendVideoUrl = await klingVeoPoll(extendTaskId, klingKey, (pct) =>
-            job.updateProgress(80 + Math.floor(pct * 0.15))
+          finalKlingBuffer = await runVeoExtendLoop(
+            adId,
+            initState,
+            veoExtendModel,
+            continuationPrompt,
+            klingKey,
+            (pct) => job.updateProgress(80 + Math.floor(pct * 0.15))
           );
-          await redisConnection.del(kieExtendKey);
-          // Download both parts and concat into a single ~16 s clip
-          const [part1, part2] = await Promise.all([
-            fetch(klingVideoUrl, { signal: AbortSignal.timeout(120_000) })
-              .then((r) => r.arrayBuffer())
-              .then((a) => Buffer.from(a)),
-            fetch(extendVideoUrl, { signal: AbortSignal.timeout(120_000) })
-              .then((r) => r.arrayBuffer())
-              .then((a) => Buffer.from(a)),
-          ]);
-          finalKlingBuffer = await concatVideos(part1, part2);
-          await redisConnection.del(`kie:initialUrl:${adId}`);
           console.log(
-            `[adWorker] Veo extend+concat complete (~16 s): ${(finalKlingBuffer.length / 1_048_576).toFixed(1)} MB`
+            `[adWorker] Veo extend+concat done (~${(numExtensions + 1) * 8} s): ${(
+              finalKlingBuffer.length / 1_048_576
+            ).toFixed(1)} MB`
           );
         } catch (extendErr) {
           const extendErrMsg = (extendErr as Error).message;
-          if (extendErrMsg.includes('timed out')) {
-            throw extendErr; // preserve key for next retry
-          }
-          await redisConnection.del(kieExtendKey);
+          if (extendErrMsg.includes('timed out')) throw extendErr;
+          await redisConnection.del(`kie:extendTask:${adId}`);
           console.warn(
             `[adWorker] Veo extend failed — falling back to initial ~8 s clip:`,
             extendErrMsg
           );
-          // finalKlingBuffer stays null → downloads initialKlingVideoUrl below
         }
       }
 
