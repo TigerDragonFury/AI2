@@ -13,15 +13,32 @@ export const adsRouter = Router();
 // GET /api/ads
 adsRouter.get('/', requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const ads = await prisma.ad.findMany({
-      where: { userId: req.userId! },
-      include: {
-        avatar: { select: { id: true, name: true, avatarVideoUrl: true } },
-        product: { select: { id: true, name: true, imageUrls: true } },
-      },
-      orderBy: { createdAt: 'desc' },
+    const page = Math.max(1, parseInt((req.query.page as string) ?? '1', 10) || 1);
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt((req.query.limit as string) ?? '10', 10) || 10)
+    );
+    const skip = (page - 1) * limit;
+
+    const [ads, total] = await Promise.all([
+      prisma.ad.findMany({
+        where: { userId: req.userId! },
+        include: {
+          avatar: { select: { id: true, name: true, avatarVideoUrl: true } },
+          product: { select: { id: true, name: true, imageUrls: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.ad.count({ where: { userId: req.userId! } }),
+    ]);
+
+    res.json({
+      data: ads,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      success: true,
     });
-    res.json({ data: ads, success: true });
   } catch (err) {
     next(err);
   }
