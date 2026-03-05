@@ -91,26 +91,15 @@ async function downloadVideo(url: string): Promise<Buffer> {
  * Uses ffmpeg filter_complex when trimming; falls back to the concat demuxer
  * (-c copy, lossless) when no trimming is needed.
  */
-/** Probe whether a saved video file has at least one audio stream via ffprobe. */
-async function hasAudio(filePath: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    execFile(
-      'ffprobe',
-      [
-        '-v',
-        'error',
-        '-select_streams',
-        'a:0',
-        '-show_entries',
-        'stream=codec_type',
-        '-of',
-        'csv=p=0',
-        filePath,
-      ],
-      { timeout: 15_000 },
-      (_err, stdout) => resolve(stdout.trim().length > 0)
-    );
-  });
+/**
+ * Run a single ffmpeg command, returning stdout/stderr on error.
+ */
+function ffmpegRun(args: string[], timeoutMs: number): Promise<void> {
+  return new Promise<void>((res, rej) =>
+    execFile('ffmpeg', args, { timeout: timeoutMs }, (err, _, stderr) =>
+      err ? rej(new Error(`ffmpeg failed: ${stderr?.slice(-800) || err.message}`)) : res()
+    )
+  );
 }
 
 export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Promise<Buffer> {
@@ -130,92 +119,33 @@ export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Pr
     const N = filePaths.length;
     const trimSec = trimExtStartSec > 0 ? trimExtStartSec : 0;
 
-    // Probe all segments for audio — skip audio filters entirely if any segment lacks audio.
-    const audioFlags = await Promise.all(filePaths.map(hasAudio));
-    const withAudio = audioFlags.every(Boolean);
-    console.log(
-      `[concatVideos] N=${N} trimSec=${trimSec} hasAudio=${withAudio} (per-seg: ${audioFlags.join(',')})`
-    );
+    console.log(`[concatVideos] N=${N} trimSec=${trimSec} — lossless two-step path`);
 
-    if (trimSec <= 0) {
-      // Fast lossless path — no trimming needed
-      const listFile = join(dir, 'list.txt');
-      await writeFile(listFile, filePaths.map((p) => `file '${p}'`).join('\n') + '\n');
-      await new Promise<void>((res, rej) =>
-        execFile(
-          'ffmpeg',
-          ['-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', '-y', outFile],
-          { timeout: 180_000 },
-          (err, _, stderr) =>
-            err ? rej(new Error(`ffmpeg concat failed: ${stderr || err.message}`)) : res()
-        )
-      );
-    } else {
-      // filter_complex path: trim leading overlap off segments 1..N-1,
-      // normalise PTS on all segments, then concat in one re-encode pass.
-      const inputs = filePaths.flatMap((p) => ['-i', p]);
-      const fc: string[] = [];
-      const vLabels: string[] = [];
-      const aLabels: string[] = [];
-
-      for (let i = 0; i < N; i++) {
-        if (i === 0) {
-          fc.push(`[0:v]setpts=PTS-STARTPTS[v0]`);
-          if (withAudio) fc.push(`[0:a]asetpts=PTS-STARTPTS[a0]`);
-        } else {
-          fc.push(`[${i}:v]trim=start=${trimSec},setpts=PTS-STARTPTS[v${i}]`);
-          if (withAudio) fc.push(`[${i}:a]atrim=start=${trimSec},asetpts=PTS-STARTPTS[a${i}]`);
-        }
-        vLabels.push(`[v${i}]`);
-        if (withAudio) aLabels.push(`[a${i}]`);
-      }
-
-      let concatFilter: string;
-      let mapArgs: string[];
-      let audioEncodeArgs: string[];
-      if (withAudio) {
-        const pairs = vLabels.map((v, i) => v + aLabels[i]).join('');
-        concatFilter = `${pairs}concat=n=${N}:v=1:a=1[vout][aout]`;
-        fc.push(concatFilter);
-        mapArgs = ['-map', '[vout]', '-map', '[aout]'];
-        audioEncodeArgs = ['-c:a', 'aac'];
+    // Step 1: Trim extension segments (1..N-1) with -ss + -c copy.
+    // This is lossless and near-instant — no decode/encode, just a stream copy
+    // seeking to the nearest keyframe at ~trimSec. Much lighter than filter_complex
+    // on Render's CPU-constrained free tier.
+    const readyPaths: string[] = [];
+    for (let i = 0; i < N; i++) {
+      if (i === 0 || trimSec <= 0) {
+        readyPaths.push(filePaths[i]);
       } else {
-        // No audio — video-only concat
-        const vPairs = vLabels.join('');
-        concatFilter = `${vPairs}concat=n=${N}:v=1:a=0[vout]`;
-        fc.push(concatFilter);
-        mapArgs = ['-map', '[vout]'];
-        audioEncodeArgs = ['-an'];
+        const trimmed = join(dir, `trimmed${i}.mp4`);
+        await ffmpegRun(
+          ['-ss', String(trimSec), '-i', filePaths[i], '-c', 'copy', '-y', trimmed],
+          60_000
+        );
+        readyPaths.push(trimmed);
       }
-
-      await new Promise<void>((res, rej) =>
-        execFile(
-          'ffmpeg',
-          [
-            ...inputs,
-            '-filter_complex',
-            fc.join(';'),
-            ...mapArgs,
-            '-c:v',
-            'libx264',
-            '-preset',
-            'fast',
-            '-crf',
-            '18',
-            ...audioEncodeArgs,
-            '-movflags',
-            '+faststart',
-            '-y',
-            outFile,
-          ],
-          { timeout: 300_000 },
-          (err, _, stderr) =>
-            err
-              ? rej(new Error(`ffmpeg filter_complex concat failed: ${stderr || err.message}`))
-              : res()
-        )
-      );
     }
+
+    // Step 2: Concat all ready segments with the concat demuxer (-c copy, lossless).
+    const listFile = join(dir, 'list.txt');
+    await writeFile(listFile, readyPaths.map((p) => `file '${p}'`).join('\n') + '\n');
+    await ffmpegRun(
+      ['-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', '-y', outFile],
+      120_000
+    );
 
     return await readFile(outFile);
   } finally {
