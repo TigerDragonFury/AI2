@@ -155,8 +155,9 @@ async function runVeoExtendLoop(
     )
   );
   console.log(`[adWorker] Concatenating ${partBufs.length} parts with ffmpeg...`);
-  // trimExtStartSec=0.5: removes the overlapping ~0.5 s Veo adds at each extension boundary
-  const merged = await concatVideos(partBufs, 0.5);
+  // trimExtStartSec=0.7: removes the overlapping ~0.7 s Veo adds at each extension boundary.
+  // The first and last segments are never trimmed — only middle boundaries.
+  const merged = await concatVideos(partBufs, 0.7);
   console.log(`[adWorker] Concat done: ${(merged.length / 1_048_576).toFixed(1)} MB`);
   await redisConnection.del(kieExtendStateKey);
   return merged;

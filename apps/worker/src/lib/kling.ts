@@ -102,7 +102,7 @@ function ffmpegRun(args: string[], timeoutMs: number): Promise<void> {
   );
 }
 
-export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Promise<Buffer> {
+export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.7): Promise<Buffer> {
   if (buffers.length === 1) return buffers[0];
 
   const dir = await mkdtemp(join(tmpdir(), 'veo-concat-'));
@@ -121,13 +121,14 @@ export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Pr
 
     console.log(`[concatVideos] N=${N} trimSec=${trimSec} — lossless two-step path`);
 
-    // Step 1: Trim extension segments (1..N-1) with -ss + -c copy.
-    // This is lossless and near-instant — no decode/encode, just a stream copy
-    // seeking to the nearest keyframe at ~trimSec. Much lighter than filter_complex
-    // on Render's CPU-constrained free tier.
+    // Step 1: Trim extension segments (1..N-2) with -ss + -c copy.
+    // Segment 0 (initial clip) and segment N-1 (final clip) are never trimmed:
+    // - Segment 0 has no preceding boundary to remove.
+    // - Segment N-1 is the last generated clip; trimming it would cut the ending.
+    // Only the middle segments have Veo's boundary overlap that needs removing.
     const readyPaths: string[] = [];
     for (let i = 0; i < N; i++) {
-      if (i === 0 || trimSec <= 0) {
+      if (i === 0 || i === N - 1 || trimSec <= 0) {
         readyPaths.push(filePaths[i]);
       } else {
         const trimmed = join(dir, `trimmed${i}.mp4`);
