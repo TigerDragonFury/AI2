@@ -34,6 +34,8 @@ import {
   kieAnalyzeProductImage,
   kieCinematicPrompt,
   buildVeoSegmentPrompts,
+  fishAudioTTS,
+  overlayAudio,
 } from '../lib/kling';
 import {
   detectProvider,
@@ -49,6 +51,37 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+/**
+ * If the avatar has a Fish Audio voice ID and there is dialogue text, generate
+ * TTS audio and replace the video's audio track with it.  Non-fatal — if Fish
+ * Audio fails the original buffer is returned unchanged.
+ */
+async function maybeApplyFishAudioVoice(
+  buf: Buffer,
+  voiceId: string | null | undefined,
+  text: string
+): Promise<Buffer> {
+  if (!voiceId || !text) return buf;
+  const fishKey = process.env.FISH_AUDIO_API_KEY;
+  if (!fishKey) {
+    console.warn('[adWorker] FISH_AUDIO_API_KEY not set — skipping Fish Audio voice overlay');
+    return buf;
+  }
+  try {
+    console.log(`[adWorker] Fish Audio TTS overlay (voiceId=${voiceId}, chars=${text.length})…`);
+    const audioBuf = await fishAudioTTS(text, voiceId, fishKey);
+    const out = await overlayAudio(buf, audioBuf);
+    console.log('[adWorker] Fish Audio voice overlay complete');
+    return out;
+  } catch (e) {
+    console.warn(
+      '[adWorker] Fish Audio overlay failed (keeping original audio):',
+      (e as Error).message
+    );
+    return buf;
+  }
+}
 
 /**
  * For Cloudinary-hosted images, chain two URL transformations so that
@@ -179,7 +212,9 @@ async function processAdJob(job: Job<{ adId: string }>) {
       product: {
         select: { imageUrls: true, name: true, price: true, currency: true, description: true },
       },
-      avatar: { select: { avatarVideoUrl: true, rawUrl: true, inputType: true, name: true } },
+      avatar: {
+        select: { avatarVideoUrl: true, rawUrl: true, inputType: true, name: true, voiceId: true },
+      },
       user: {
         select: {
           companyName: true,
@@ -299,13 +334,18 @@ async function processAdJob(job: Job<{ adId: string }>) {
         try {
           await job.updateProgress(80);
           const extState = extStateForPrompts;
-          const mergedBuf = await runVeoExtendLoop(
+          let mergedBuf = await runVeoExtendLoop(
             adId,
             extState,
             veoExtendModel,
             fpSegmentPrompts,
             klingKey,
             (pct) => job.updateProgress(80 + Math.floor(pct * 0.18))
+          );
+          mergedBuf = await maybeApplyFishAudioVoice(
+            mergedBuf,
+            ad.avatar?.voiceId,
+            ad.dialogueText ?? ''
           );
           await job.updateProgress(95);
           const extUpload = await cloudinary.uploader.upload(
@@ -461,9 +501,13 @@ async function processAdJob(job: Job<{ adId: string }>) {
             throw new Error(`Kie.ai video download failed: ${klingRes.status}: ${klingVideoUrl}`);
           klingBuf = Buffer.from(await klingRes.arrayBuffer());
         }
+        klingBuf = await maybeApplyFishAudioVoice(
+          klingBuf,
+          ad.avatar?.voiceId,
+          ad.dialogueText ?? ''
+        );
         const uploadResult = await cloudinary.uploader.upload(
-          `data:video/mp4;base64,${klingBuf.toString('base64')}`,
-          { resource_type: 'video', folder: CLOUDINARY_FOLDERS.GENERATED_ADS, public_id: adId }
+          `data:video/mp4;base64,${klingBuf.toString('base64')}`
         );
 
         const generatedVideoUrl = uploadResult.secure_url;
@@ -1283,6 +1327,11 @@ async function processAdJob(job: Job<{ adId: string }>) {
           );
         klingBuffer = Buffer.from(await klingRes.arrayBuffer());
       }
+      klingBuffer = await maybeApplyFishAudioVoice(
+        klingBuffer,
+        ad.avatar?.voiceId,
+        klingDialogueText
+      );
       const klingDataUri = `data:video/mp4;base64,${klingBuffer.toString('base64')}`;
       const uploadResult = await cloudinary.uploader.upload(klingDataUri, {
         resource_type: 'video',

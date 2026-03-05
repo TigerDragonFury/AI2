@@ -156,6 +156,7 @@ model Avatar {
   inputType      AvatarInputType
   rawUrl         String
   avatarVideoUrl String?
+  voiceId        String?         // Fish Audio IVC reference_id; when set, all ads use this voice via TTS overlay
   status         AvatarStatus    @default(uploading)
   errorMessage   String?
   createdAt      DateTime        @default(now())

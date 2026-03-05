@@ -778,3 +778,71 @@ export async function klingVeoGenerateVideo(
 
   return downloadVideo(videoUrl);
 }
+
+// ─── Fish Audio TTS + audio overlay ──────────────────────────────────────────
+
+/**
+ * Synthesise speech from `text` using a Fish Audio IVC voice clone.
+ * `voiceId` is the `reference_id` obtained when registering the voice on
+ * https://fish.audio.
+ * Returns a Buffer containing the MP3 audio.
+ */
+export async function fishAudioTTS(text: string, voiceId: string, apiKey: string): Promise<Buffer> {
+  const res = await fetch('https://api.fish.audio/v1/tts', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text,
+      reference_id: voiceId,
+      format: 'mp3',
+      mp3_bitrate: 128,
+      latency: 'normal',
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Fish Audio TTS error ${res.status}: ${body}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/**
+ * Replace the audio track of an MP4 video with a custom audio buffer.
+ * The original video audio is discarded.  Video stream is copied losslessly.
+ * `audioBuf` should be an MP3 or WAV buffer.
+ */
+export async function overlayAudio(videoBuf: Buffer, audioBuf: Buffer): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), 'audio-overlay-'));
+  const videoIn = join(dir, 'input.mp4');
+  const audioIn = join(dir, 'audio.mp3');
+  const outFile = join(dir, 'output.mp4');
+  try {
+    await writeFile(videoIn, videoBuf);
+    await writeFile(audioIn, audioBuf);
+    await ffmpegRun(
+      [
+        '-i',
+        videoIn,
+        '-i',
+        audioIn,
+        '-c:v',
+        'copy',
+        '-map',
+        '0:v:0',
+        '-map',
+        '1:a:0',
+        '-shortest',
+        '-y',
+        outFile,
+      ],
+      90_000
+    );
+    return await readFile(outFile);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}

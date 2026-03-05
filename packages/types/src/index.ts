@@ -33,6 +33,7 @@ export interface Avatar {
   inputType: AvatarInputType;
   rawUrl: string;
   avatarVideoUrl: string | null;
+  voiceId: string | null;
   status: AvatarStatus;
   errorMessage: string | null;
   createdAt: Date;

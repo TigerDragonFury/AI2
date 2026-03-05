@@ -4,7 +4,17 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { Users, Trash2, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import {
+  Users,
+  Trash2,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  Mic,
+  MicOff,
+  Check,
+  X,
+} from 'lucide-react';
 import type { Avatar } from '@adavatar/types';
 
 // ─── Fetcher ──────────────────────────────────────────────────────────────────
@@ -42,8 +52,42 @@ function StatusBadge({ status }: { status: Avatar['status'] }) {
 
 // ─── Avatar card ──────────────────────────────────────────────────────────────
 
-function AvatarCard({ avatar, onDelete }: { avatar: Avatar; onDelete: (id: string) => void }) {
+function AvatarCard({
+  avatar,
+  token,
+  onDelete,
+  onVoiceUpdate,
+}: {
+  avatar: Avatar;
+  token: string;
+  onDelete: (id: string) => void;
+  onVoiceUpdate: (id: string, voiceId: string | null) => void;
+}) {
   const [deleting, setDeleting] = useState(false);
+  const [editingVoice, setEditingVoice] = useState(false);
+  const [voiceInput, setVoiceInput] = useState('');
+  const [savingVoice, setSavingVoice] = useState(false);
+
+  const saveVoice = async () => {
+    setSavingVoice(true);
+    try {
+      const trimmed = voiceInput.trim() || null;
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/avatars/${avatar.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ voiceId: trimmed }),
+      });
+      if (res.ok) {
+        onVoiceUpdate(avatar.id, trimmed);
+        setEditingVoice(false);
+      }
+    } finally {
+      setSavingVoice(false);
+    }
+  };
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
@@ -106,6 +150,66 @@ function AvatarCard({ avatar, onDelete }: { avatar: Avatar; onDelete: (id: strin
         {avatar.status === 'failed' && avatar.errorMessage && (
           <p className="mt-1 text-xs text-destructive line-clamp-2">{avatar.errorMessage}</p>
         )}
+
+        {/* Voice ID section */}
+        {editingVoice ? (
+          <div className="mt-1 flex items-center gap-1">
+            <input
+              autoFocus
+              type="text"
+              value={voiceInput}
+              onChange={(e) => setVoiceInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveVoice();
+                if (e.key === 'Escape') setEditingVoice(false);
+              }}
+              placeholder="Fish Audio reference_id"
+              className="min-w-0 flex-1 rounded border border-input bg-background px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              type="button"
+              disabled={savingVoice}
+              onClick={saveVoice}
+              className="flex h-5 w-5 items-center justify-center rounded text-green-600 hover:bg-green-500/10"
+            >
+              {savingVoice ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Check className="h-3 w-3" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditingVoice(false)}
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setVoiceInput(avatar.voiceId ?? '');
+              setEditingVoice(true);
+            }}
+            className="mt-1 flex items-center gap-1.5 text-left text-xs text-muted-foreground hover:text-foreground"
+          >
+            {avatar.voiceId ? (
+              <>
+                <Mic className="h-3 w-3 shrink-0 text-green-600" />
+                <span className="truncate font-mono text-green-700">
+                  {avatar.voiceId.slice(0, 14)}…
+                </span>
+              </>
+            ) : (
+              <>
+                <MicOff className="h-3 w-3 shrink-0" />
+                <span>Set Fish Audio voice</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -149,6 +253,12 @@ export function AvatarGallery() {
     );
   };
 
+  const handleVoiceUpdate = (id: string, voiceId: string | null) => {
+    mutate((prev) => prev?.map((a) => (a.id === id ? { ...a, voiceId } : a)), {
+      revalidate: false,
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -178,7 +288,13 @@ export function AvatarGallery() {
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {avatars.map((avatar) => (
-        <AvatarCard key={avatar.id} avatar={avatar} onDelete={handleDelete} />
+        <AvatarCard
+          key={avatar.id}
+          avatar={avatar}
+          token={session!.accessToken as string}
+          onDelete={handleDelete}
+          onVoiceUpdate={handleVoiceUpdate}
+        />
       ))}
     </div>
   );

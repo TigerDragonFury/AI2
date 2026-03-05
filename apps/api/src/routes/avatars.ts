@@ -50,6 +50,10 @@ const createAvatarSchema = z.object({
   skipProcessing: z.boolean().optional().default(false),
 });
 
+const patchAvatarSchema = z.object({
+  voiceId: z.string().nullable().optional(),
+});
+
 // POST /api/avatars — create avatar record after upload
 avatarsRouter.post(
   '/',
@@ -90,6 +94,24 @@ avatarsRouter.post(
     }
   }
 );
+
+// PATCH /api/avatars/:id — update mutable fields (voiceId, etc.)
+avatarsRouter.patch('/:id', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    const avatar = await prisma.avatar.findFirst({
+      where: { id: req.params.id, userId: req.userId! },
+    });
+    if (!avatar) return next(createError('Avatar not found', 404, 'NOT_FOUND'));
+    const body = patchAvatarSchema.parse(req.body);
+    const updated = await prisma.avatar.update({
+      where: { id: req.params.id },
+      data: { ...(body.voiceId !== undefined ? { voiceId: body.voiceId } : {}) },
+    });
+    res.json({ data: updated, success: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // DELETE /api/avatars/:id
 avatarsRouter.delete('/:id', requireAuth, async (req: AuthRequest, res, next) => {
