@@ -142,7 +142,7 @@ async function runVeoExtendLoop(
   console.log(`[adWorker] Downloading ${state.partUrls.length} Veo parts for concat...`);
   const partBufs = await Promise.all(
     state.partUrls.map((url, i) =>
-      fetch(url, { signal: AbortSignal.timeout(120_000) })
+      fetch(url, { signal: AbortSignal.timeout(30_000) })
         .then((r) => {
           if (!r.ok) throw new Error(`Part ${i} download error ${r.status}: ${url}`);
           return r.arrayBuffer();
@@ -338,13 +338,26 @@ async function processAdJob(job: Job<{ adId: string }>) {
           return;
         } catch (extFastErr) {
           const extFastErrMsg = (extFastErr as Error).message;
-          if (extFastErrMsg.includes('timed out')) {
-            console.warn(`[adWorker] Extend fast-path timed out — rethrowing for retry`);
+          const isVeoApiTimeout =
+            extFastErrMsg.toLowerCase().includes('timed out after') ||
+            extFastErrMsg.includes('Kling Veo timed out');
+          if (isVeoApiTimeout) {
+            // Veo API poll timed out — keep extendState so next retry can re-poll.
+            console.warn(`[adWorker] Extend fast-path: Veo API timed out — rethrowing for retry`);
             throw extFastErr;
           }
-          await redisConnection.del(`kie:extendTask:${adId}`);
-          console.warn(`[adWorker] Extend fast-path terminal failure:`, extFastErrMsg);
-          throw extFastErr;
+          // Download failure, ffmpeg error, or AbortSignal timeout on temp URL.
+          // The temp URLs are likely expired — clear ALL state so next retry starts fresh.
+          console.warn(
+            `[adWorker] Extend fast-path failed (${extFastErrMsg}) — clearing Redis state for fresh re-generation`
+          );
+          await Promise.all([
+            redisConnection.del(`kie:extendTask:${adId}`),
+            redisConnection.del(`kie:extendState:${adId}`),
+            redisConnection.del(`kie:pendingTask:${adId}`),
+          ]);
+          // Don't rethrow — fall through to full re-generation below
+          console.warn(`[adWorker] Extend fast-path cleared — will re-generate from scratch`);
         }
       }
       // Clean up any legacy keys from previous code version
@@ -428,7 +441,10 @@ async function processAdJob(job: Job<{ adId: string }>) {
             );
           } catch (extFP) {
             const extFPMsg = (extFP as Error).message;
-            if (extFPMsg.includes('timed out')) throw extFP;
+            const isVeoTimeout =
+              extFPMsg.toLowerCase().includes('timed out after') ||
+              extFPMsg.includes('Kling Veo timed out');
+            if (isVeoTimeout) throw extFP;
             await redisConnection.del(`kie:extendState:${adId}`);
             await redisConnection.del(`kie:extendTask:${adId}`);
             console.warn(`[adWorker] Fast-path extend failed — using initial 8 s clip:`, extFPMsg);
@@ -1236,8 +1252,14 @@ async function processAdJob(job: Job<{ adId: string }>) {
           );
         } catch (extendErr) {
           const extendErrMsg = (extendErr as Error).message;
-          if (extendErrMsg.includes('timed out')) throw extendErr;
-          await redisConnection.del(`kie:extendTask:${adId}`);
+          const isVeoApiTimeout =
+            extendErrMsg.toLowerCase().includes('timed out after') ||
+            extendErrMsg.includes('Kling Veo timed out');
+          if (isVeoApiTimeout) throw extendErr;
+          await Promise.all([
+            redisConnection.del(`kie:extendTask:${adId}`),
+            redisConnection.del(`kie:extendState:${adId}`),
+          ]);
           console.warn(
             `[adWorker] Veo extend/concat failed — falling back to initial ~8 s clip:`,
             extendErrMsg
