@@ -33,6 +33,7 @@ import {
   kieGenerateDialogue,
   kieAnalyzeProductImage,
   kieCinematicPrompt,
+  buildVeoSegmentPrompts,
 } from '../lib/kling';
 import {
   detectProvider,
@@ -107,7 +108,8 @@ async function runVeoExtendLoop(
   adId: string,
   state: { numExtensions: number; partUrls: string[]; prevTaskId: string },
   model: 'fast' | 'quality',
-  continuationPrompt: string,
+  /** Single fallback prompt OR per-segment array (index 0 = 1st extension, etc.) */
+  continuationPrompts: string | string[],
   klingKey: string,
   onProgress: (pct: number) => void
 ): Promise<Buffer> {
@@ -116,9 +118,14 @@ async function runVeoExtendLoop(
   await redisConnection.set(kieExtendStateKey, JSON.stringify(state), 'EX', 14400);
 
   while (state.partUrls.length - 1 < state.numExtensions) {
+    const extIndex = state.partUrls.length - 1; // 0-based index of THIS extension
+    const prompt = Array.isArray(continuationPrompts)
+      ? (continuationPrompts[extIndex] ?? continuationPrompts[continuationPrompts.length - 1])
+      : continuationPrompts;
+
     let activeId = await redisConnection.get(kieActiveExtendKey);
     if (!activeId) {
-      activeId = await submitKlingVeoExtend(state.prevTaskId, continuationPrompt, model, klingKey);
+      activeId = await submitKlingVeoExtend(state.prevTaskId, prompt, model, klingKey);
       await redisConnection.set(kieActiveExtendKey, activeId, 'EX', 14400);
     }
     const extUrl = await klingVeoPoll(activeId, klingKey, onProgress);
@@ -131,7 +138,7 @@ async function runVeoExtendLoop(
     );
   }
 
-  // Download all parts and concat into a single MP4
+  // Download all parts, trim 0.5 s off each extension to remove boundary duplicates
   const partBufs = await Promise.all(
     state.partUrls.map((url) =>
       fetch(url, { signal: AbortSignal.timeout(120_000) })
@@ -139,7 +146,8 @@ async function runVeoExtendLoop(
         .then((a) => Buffer.from(a))
     )
   );
-  const merged = await concatVideos(partBufs);
+  // trimExtStartSec=0.5: removes the overlapping ~0.5 s Veo adds at each extension boundary
+  const merged = await concatVideos(partBufs, 0.5);
   await redisConnection.del(kieExtendStateKey);
   return merged;
 }
@@ -266,21 +274,25 @@ async function processAdJob(job: Job<{ adId: string }>) {
         };
         const fpSpokenLang = fpLangMap[(ad.dialogueLanguage ?? 'en').toLowerCase()] ?? 'English';
         const veoExtendModel = models.klingVeoModel === 'veo3_fast' ? 'fast' : 'quality';
-        const continuationPrompt =
-          `Continue the scene naturally. Same energy, motion, and speech. ` +
-          `All spoken words in ${fpSpokenLang}. Perfect lip sync. No abrupt changes.`;
+        const extStateForPrompts = JSON.parse(existingStateJson) as {
+          numExtensions: number;
+          partUrls: string[];
+          prevTaskId: string;
+        };
+        const fpSegmentPrompts = buildVeoSegmentPrompts(
+          ad.product?.name ?? 'the product',
+          ad.avatar?.name ?? 'the creator',
+          fpSpokenLang,
+          extStateForPrompts.numExtensions
+        );
         try {
           await job.updateProgress(80);
-          const extState = JSON.parse(existingStateJson) as {
-            numExtensions: number;
-            partUrls: string[];
-            prevTaskId: string;
-          };
+          const extState = extStateForPrompts;
           const mergedBuf = await runVeoExtendLoop(
             adId,
             extState,
             veoExtendModel,
-            continuationPrompt,
+            fpSegmentPrompts,
             klingKey,
             (pct) => job.updateProgress(80 + Math.floor(pct * 0.18))
           );
@@ -379,9 +391,12 @@ async function processAdJob(job: Job<{ adId: string }>) {
         let finalBufFP: Buffer | null = null;
         if (isLegacyVeo && numExtFP > 0) {
           const veoExtendModel = models.klingVeoModel === 'veo3_fast' ? 'fast' : 'quality';
-          const continuationPrompt =
-            `Continue the scene naturally. Same energy, motion, and speech. ` +
-            `All spoken words in ${fpSpokenLang2}. Perfect lip sync. No abrupt changes.`;
+          const segmentPromptsFP = buildVeoSegmentPrompts(
+            ad.product?.name ?? 'the product',
+            ad.avatar?.name ?? 'the creator',
+            fpSpokenLang2,
+            numExtFP
+          );
           const initState = {
             numExtensions: numExtFP,
             partUrls: [klingVideoUrl],
@@ -392,7 +407,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
               adId,
               initState,
               veoExtendModel,
-              continuationPrompt,
+              segmentPromptsFP,
               klingKey,
               (pct) => job.updateProgress(80 + Math.floor(pct * 0.15))
             );
@@ -1018,12 +1033,15 @@ async function processAdJob(job: Job<{ adId: string }>) {
       if (ad.autoDialogue && !klingDialogueText) {
         try {
           console.log(`[adWorker] Kie.ai: generating dialogue (lang=${klingDialogueLanguage})...`);
+          // Always pass 8 — Veo generates 8 s per segment; dialogue goes into the
+          // initial clip only. Passing adDuration would ask for too many words
+          // and cause the lip sync to degrade badly.
           klingDialogueText = await kieGenerateDialogue(
             ad.product?.name ?? 'this product',
             ad.avatar?.name ?? 'the creator',
             enhancedPrompt,
             klingDialogueLanguage,
-            adDuration,
+            8, // one Veo segment = 8 s; dialogue is for the initial clip only
             models.kieVisionModel,
             klingKey,
             {
@@ -1065,12 +1083,15 @@ async function processAdJob(job: Job<{ adId: string }>) {
         'The creator appears in a completely new scene — the original background from any reference ' +
         'image is entirely replaced by the environment described in this prompt. ' +
         'STRICT: No on-screen text, captions, subtitles, price overlays, or graphic titles. ' +
+        'Include dynamic cinematic product shots: alternate between creator talking and close-up ' +
+        'beauty shots of the product — extreme macro, rack-focus, slow-motion texture reveals. ' +
         enhancedPrompt;
       if (klingDialogueText) {
-        klingPrompt += `\n\nSpoken dialogue in ${spokenLang}: "${klingDialogueText}"`;
+        klingPrompt += `\n\nSpoken line in ${spokenLang} (8 seconds max): "${klingDialogueText}"`;
         klingPrompt +=
-          `\nThe creator delivers every word in perfect ${spokenLang} lip sync — ` +
-          `each syllable is visibly matched by natural, expressive mouth movements.`;
+          `\nThe creator speaks these exact words naturally and conversationally in ${spokenLang}. ` +
+          `PERFECT LIP SYNC — every syllable is visibly matched by natural, expressive mouth movements. ` +
+          `Delivery is authentic, like a real person talking to their phone camera — NOT a formal ad.`;
       } else {
         klingPrompt += `\nThe creator speaks naturally in ${spokenLang} with perfect lip sync.`;
       }
@@ -1171,10 +1192,12 @@ async function processAdJob(job: Job<{ adId: string }>) {
       let finalKlingBuffer: Buffer | null = null;
       if (LEGACY_VEO_MODELS.has(models.klingVeoModel) && numExtensions > 0) {
         const veoExtendModel = models.klingVeoModel === 'veo3_fast' ? 'fast' : 'quality';
-        const continuationPrompt =
-          `Continue the scene naturally. The creator carries on with the same energy, motion, and speech — ` +
-          `maintaining identical lighting, background, and visual atmosphere. ` +
-          `All spoken words in ${spokenLang}. Perfect lip sync. No abrupt changes.`;
+        const segmentPrompts = buildVeoSegmentPrompts(
+          ad.product?.name ?? 'the product',
+          ad.avatar?.name ?? 'the creator',
+          spokenLang,
+          numExtensions
+        );
         const initState = {
           numExtensions,
           partUrls: [klingVideoUrl],
@@ -1185,7 +1208,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
             adId,
             initState,
             veoExtendModel,
-            continuationPrompt,
+            segmentPrompts,
             klingKey,
             (pct) => job.updateProgress(80 + Math.floor(pct * 0.15))
           );

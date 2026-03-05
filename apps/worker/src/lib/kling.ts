@@ -80,35 +80,103 @@ async function downloadVideo(url: string): Promise<Buffer> {
 }
 
 /**
- * Concatenate N MP4 buffers in order using ffmpeg's concat demuxer.
- * Produces a single lossless (-c copy) MP4. Requires ffmpeg on PATH.
- * If only one buffer is provided, returns it unchanged.
+ * Concatenate N MP4 buffers in order.
+ *
+ * When `trimExtStartSec > 0` (default 0.5 s), the start of every segment after
+ * the first is trimmed by that amount before concatenating.  This removes the
+ * duplicated boundary frames that the Veo extend API produces — the extension
+ * clip starts from the last frame of the previous clip, so there is a ~0.5 s
+ * overlap that must be discarded before joining.
+ *
+ * Uses ffmpeg filter_complex when trimming; falls back to the concat demuxer
+ * (-c copy, lossless) when no trimming is needed.
  */
-export async function concatVideos(buffers: Buffer[]): Promise<Buffer> {
+export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.5): Promise<Buffer> {
   if (buffers.length === 1) return buffers[0];
+
   const dir = await mkdtemp(join(tmpdir(), 'veo-concat-'));
   const outFile = join(dir, 'merged.mp4');
-  const listFile = join(dir, 'list.txt');
   try {
     const filePaths = await Promise.all(
       buffers.map(async (buf, i) => {
-        const p = join(dir, `part${i}.mp4`);
+        const p = join(dir, `raw${i}.mp4`);
         await writeFile(p, buf);
         return p;
       })
     );
-    await writeFile(listFile, filePaths.map((p) => `file '${p}'`).join('\n') + '\n');
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        'ffmpeg',
-        ['-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', '-y', outFile],
-        { timeout: 180_000 },
-        (err, _stdout, stderr) => {
-          if (err) reject(new Error(`ffmpeg concat failed: ${stderr || err.message}`));
-          else resolve();
-        }
+
+    const N = filePaths.length;
+    const trimSec = trimExtStartSec > 0 ? trimExtStartSec : 0;
+
+    if (trimSec <= 0) {
+      // Fast lossless path — no trimming needed
+      const listFile = join(dir, 'list.txt');
+      await writeFile(listFile, filePaths.map((p) => `file '${p}'`).join('\n') + '\n');
+      await new Promise<void>((res, rej) =>
+        execFile(
+          'ffmpeg',
+          ['-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', '-y', outFile],
+          { timeout: 180_000 },
+          (err, _, stderr) =>
+            err ? rej(new Error(`ffmpeg concat failed: ${stderr || err.message}`)) : res()
+        )
       );
-    });
+    } else {
+      // filter_complex path: trim leading overlap off segments 1..N-1,
+      // normalise PTS on all segments, then concat in one re-encode pass.
+      const inputs = filePaths.flatMap((p) => ['-i', p]);
+      const fc: string[] = [];
+      const vLabels: string[] = [];
+      const aLabels: string[] = [];
+
+      for (let i = 0; i < N; i++) {
+        if (i === 0) {
+          fc.push(`[0:v]setpts=PTS-STARTPTS[v0]`);
+          fc.push(`[0:a]asetpts=PTS-STARTPTS[a0]`);
+        } else {
+          fc.push(`[${i}:v]trim=start=${trimSec},setpts=PTS-STARTPTS[v${i}]`);
+          fc.push(`[${i}:a]atrim=start=${trimSec},asetpts=PTS-STARTPTS[a${i}]`);
+        }
+        vLabels.push(`[v${i}]`);
+        aLabels.push(`[a${i}]`);
+      }
+
+      const pairs = vLabels.map((v, i) => v + aLabels[i]).join('');
+      fc.push(`${pairs}concat=n=${N}:v=1:a=1[vout][aout]`);
+
+      await new Promise<void>((res, rej) =>
+        execFile(
+          'ffmpeg',
+          [
+            ...inputs,
+            '-filter_complex',
+            fc.join(';'),
+            '-map',
+            '[vout]',
+            '-map',
+            '[aout]',
+            '-c:v',
+            'libx264',
+            '-preset',
+            'fast',
+            '-crf',
+            '18',
+            '-c:a',
+            'aac',
+            '-movflags',
+            '+faststart',
+            '-y',
+            outFile,
+          ],
+          { timeout: 300_000 },
+          (err, _, stderr) =>
+            err
+              ? rej(new Error(`ffmpeg filter_complex concat failed: ${stderr || err.message}`))
+              : res()
+        )
+      );
+    }
+
     return await readFile(outFile);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -452,7 +520,11 @@ export async function kieGenerateDialogue(
   apiKey: string,
   ctx?: { companyName?: string; brandVoice?: string; price?: string; productDescription?: string }
 ): Promise<string> {
-  const wordLimit = durationSec <= 3 ? 15 : durationSec <= 5 ? 25 : 40;
+  // Veo 3.1 always generates 8 s per segment — calibrate word count to that window.
+  // ~2 words/second is natural, conversational speech (120–130 WPM).
+  // Never ask for more words than the video can comfortably deliver.
+  const effectiveSec = Math.min(durationSec, 8);
+  const wordLimit = Math.max(8, Math.round(effectiveSec * 2));
   const langNames: Record<string, string> = {
     en: 'English',
     ar: 'Arabic',
@@ -477,19 +549,21 @@ export async function kieGenerateDialogue(
     : '';
 
   const systemPrompt =
-    `You are a professional paid-ad copywriter specialising in short UGC video ads. ` +
+    `You are a professional UGC ad creator writing AUTHENTIC, NATURAL spoken lines for a short video. ` +
     `You MUST write ONLY in ${langName} — every single word of your response must be in ${langName}. ` +
-    `Your sole goal is to make viewers want to PURCHASE the product being advertised. ` +
-    `Always highlight a concrete benefit or quality of the product and end with a call to action. ` +
-    `NEVER narrate what the person is doing — speak TO the viewer ABOUT the product. ` +
-    `Be punchy, energetic, and persuasive. ${brandTone}`;
+    `Write as if a REAL PERSON is casually talking to their phone camera — NOT a formal advertisement. ` +
+    `Sound like a genuine recommendation from a friend: conversational, warm, spontaneous. ` +
+    `Highlight ONE concrete benefit and end with a brief call to action. ` +
+    `NEVER narrate what the person is doing — speak TO the viewer. ` +
+    `Keep it SHORT — every word must fit naturally in ${effectiveSec} seconds of relaxed speech. ${brandTone}`;
 
   const userPrompt =
     `${brandName}${productDescLine}${priceInstruction}` +
-    `Write a ${wordLimit}-word max spoken dialogue script in ${langName} for a ${durationSec}-second ` +
-    `UGC video ad for the product "${productName}" presented by ${avatarName}. ` +
+    `Write a natural, conversational spoken line (MAX ${wordLimit} words) in ${langName} for the ` +
+    `FIRST 8 seconds of a UGC video ad for "${productName}" by ${avatarName}. ` +
+    `It must sound like something a real person would naturally say — casual, authentic, energetic. ` +
     `Context: ${sceneDescription}. ` +
-    `Output ONLY the dialogue text — no stage directions, no labels, no quotes.`;
+    `Output ONLY the spoken words — no stage directions, no labels, no quotes.`;
 
   const json = await kieChat(
     `${KLING_BASE}/${model}/v1/chat/completions`,
@@ -641,6 +715,52 @@ export async function kieCinematicPrompt(
   }
   console.log(`[Kie.ai Cinematic] Generated timeline prompt (${text.length} chars)`);
   return text;
+}
+
+/**
+ * Generate per-segment continuation scene prompts for multi-segment Veo ads.
+ * Each extension segment is ~8 s. Returns `numExtensions` prompts (one per
+ * extend call), each describing a distinct cinematic scene that flows from
+ * the previous one.
+ *
+ * Segment roles:
+ *   0 (initial clip, NOT returned): creator hook — already handled by kieCinematicPrompt
+ *   1st extension: product close-up beauty shots + feature demo
+ *   2nd extension: creator mid-scene, interaction / benefit statement
+ *   3rd extension: call to action + brand moment
+ */
+export function buildVeoSegmentPrompts(
+  productName: string,
+  avatarName: string,
+  spokenLang: string,
+  numExtensions: number
+): string[] {
+  const templates = [
+    // Extension 1: product hero / feature demonstration
+    `Seamless continuation of the previous scene. Same creator, same environment, same vibe. ` +
+      `Transition to cinematic product beauty shots — extreme close-up of ${productName} showing texture, ` +
+      `material quality, and key features in stunning detail. Slow-motion macro lens. Rack-focus from ` +
+      `creator's hands holding the product to the product surface. The creator demonstrates one key ` +
+      `feature with smooth, natural gestures. Rich warm lighting. No text or overlays. ` +
+      `All speech in ${spokenLang}. Perfect lip sync.`,
+
+    // Extension 2: benefit / testimonial moment
+    `Continuation. Creator turns back to camera — medium shot — with genuine excitement. ` +
+      `Speaks directly to viewer about how ${productName} changed something real for them. ` +
+      `Cut between creator's expressive face and product held up clearly. ` +
+      `Cinematic handheld motion. A quick cutaway: product placed on a surface, ` +
+      `camera tilts up and reveals the full product in a lifestyle setting. ` +
+      `Authentic emotion — no scripted feel. All speech in ${spokenLang}. Perfect lip sync.`,
+
+    // Extension 3: CTA + brand close
+    `Final segment. ${avatarName} delivers a confident, energetic call to action directly to camera. ` +
+      `Holds ${productName} prominently. Camera slowly pushes in to a tight close-up of the product. ` +
+      `Last beat: creator smiles warmly at camera, product centred in frame. ` +
+      `Soft background bokeh, beautiful lighting. Cinematic close. ` +
+      `All speech in ${spokenLang}. Perfect lip sync.`,
+  ];
+
+  return templates.slice(0, Math.min(numExtensions, templates.length));
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
