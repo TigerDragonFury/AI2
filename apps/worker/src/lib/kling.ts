@@ -121,14 +121,13 @@ export async function concatVideos(buffers: Buffer[], trimExtStartSec = 0.7): Pr
 
     console.log(`[concatVideos] N=${N} trimSec=${trimSec} — lossless two-step path`);
 
-    // Step 1: Trim extension segments (1..N-2) with -ss + -c copy.
-    // Segment 0 (initial clip) and segment N-1 (final clip) are never trimmed:
-    // - Segment 0 has no preceding boundary to remove.
-    // - Segment N-1 is the last generated clip; trimming it would cut the ending.
-    // Only the middle segments have Veo's boundary overlap that needs removing.
+    // Step 1: Trim the beginning of every extension segment (1..N-1) by trimSec.
+    // Veo's extend API always copies the last ~0.7s of the previous clip into the
+    // start of the new one — trim that duplicate off every extension, including the last.
+    // Only segment 0 (the original generation) has no preceding boundary to remove.
     const readyPaths: string[] = [];
     for (let i = 0; i < N; i++) {
-      if (i === 0 || i === N - 1 || trimSec <= 0) {
+      if (i === 0 || trimSec <= 0) {
         readyPaths.push(filePaths[i]);
       } else {
         const trimmed = join(dir, `trimmed${i}.mp4`);
