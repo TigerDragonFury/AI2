@@ -473,7 +473,7 @@ function extractKieText(json: KieChatResponse): string | undefined {
 }
 
 /**
- * POST to a Kie.ai chat completions endpoint with one automatic retry on
+ * POST to a Kie.ai chat completions endpoint with up to 3 retries on
  * transient failures (5xx, network error, timeout).  Returns the parsed JSON.
  */
 async function kieChat(
@@ -495,14 +495,23 @@ async function kieChat(
     if (json.code && json.code >= 500) throw new Error(`Kie.ai server error: ${json.msg}`);
     return json as KieChatResponse;
   };
-  try {
-    return await attempt();
-  } catch (err) {
-    // One retry after a 4-second pause for transient errors
-    console.warn(`[Kie.ai] Chat attempt failed (${(err as Error).message}), retrying in 4s...`);
-    await new Promise((r) => setTimeout(r, 4_000));
-    return attempt();
+  const MAX_RETRIES = 3;
+  let lastErr: Error = new Error('unknown');
+  for (let i = 0; i <= MAX_RETRIES; i++) {
+    try {
+      return await attempt();
+    } catch (err) {
+      lastErr = err as Error;
+      if (i < MAX_RETRIES) {
+        const delay = Math.min(4_000 * 2 ** i, 30_000); // 4s, 8s, 16s
+        console.warn(
+          `[Kie.ai] Chat attempt ${i + 1} failed (${lastErr.message}), retrying in ${delay / 1000}s...`
+        );
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
   }
+  throw lastErr;
 }
 
 /**
@@ -706,7 +715,7 @@ export async function kieCinematicPrompt(
       stream: false,
       include_thoughts: false,
     },
-    60_000
+    120_000 // cinematic prompt is complex — 120s per attempt (3 retries = up to 6 min total)
   );
   const text = extractKieText(json);
   if (!text) {

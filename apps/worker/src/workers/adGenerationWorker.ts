@@ -632,7 +632,14 @@ async function processAdJob(job: Job<{ adId: string }>) {
       );
       const bv = brandVoiceParts2.length ? brandVoiceParts2.join(', ') : undefined;
 
-      if (provider === 'kling') {
+      // If enhancedPrompt was already computed and saved in a prior run (before a stall/restart),
+      // reuse it directly — skip the expensive LLM call entirely.
+      if (ad.enhancedPrompt) {
+        enhancedPrompt = ad.enhancedPrompt;
+        console.log(
+          `[adWorker] Cinematic prompt: reusing saved value from prior run (${enhancedPrompt.length} chars)`
+        );
+      } else if (provider === 'kling') {
         const klingKey = await getProviderKey('kling');
         if (klingKey) {
           try {
