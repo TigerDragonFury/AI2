@@ -52,7 +52,7 @@ const generateAdSchema = z
     rawPrompt: z.string().max(1000).optional().default(''),
     aspectRatio: z.enum(['9:16', '16:9', '1:1']),
     // wan2.6-i2v supports 2–15 seconds (integer values). We expose 5 / 10 / 15.
-    duration: z.number().int().min(2).max(15).optional().default(5),
+    duration: z.number().int().min(8).max(32).optional().default(8),
     // Auto-generate ad prompt from product image (Qwen VL)
     autoPrompt: z.boolean().optional().default(false),
     // Dialogue / voiceover

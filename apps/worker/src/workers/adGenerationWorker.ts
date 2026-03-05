@@ -226,7 +226,7 @@ async function processAdJob(job: Job<{ adId: string }>) {
   const userId = ad.userId;
   const productImageUrls: string[] = ad.product?.imageUrls ?? [];
   const avatarVideoUrl: string = ad.avatar?.avatarVideoUrl ?? '';
-  const adDuration: number = ad.duration ?? 5;
+  const adDuration: number = ad.duration ?? 8;
 
   // AspectRatio Prisma enum → ratio string for enhanceAdPrompt
   const aspectRatioReverseMap: Record<string, '9:16' | '16:9' | '1:1'> = {
