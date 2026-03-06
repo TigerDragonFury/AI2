@@ -59,6 +59,9 @@ export function enhanceAdPrompt(
     // UGC-style direction so the model produces authentic creator-style content
     'Close-up handheld shots, natural lighting, authentic UGC style.',
     'Photorealistic, stable motion, no distortion.',
+    options?.productName
+      ? `The product "${options.productName}" must remain IDENTICAL throughout — same colour, shape, packaging, and label in every frame. Never alter, morph, or transform the product.`
+      : 'The product must remain visually identical throughout — same colour, shape, and packaging in every frame.',
     `${ratioContext[aspectRatio] ?? aspectRatio}.`,
   ];
 
@@ -70,6 +73,7 @@ export function enhanceAdPrompt(
  */
 export const DASHSCOPE_NEGATIVE_PROMPT =
   'blurry, distorted, extra hands, extra limbs, morphing, dissolving, ' +
+  'product transformation, product colour change, product shape change, packaging alteration, ' +
   'low quality, pixelated, watermark, text overlay, multiple products, ' +
   'object duplication, unrealistic motion, artifacts';
 

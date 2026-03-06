@@ -473,14 +473,17 @@ export async function dashscopeAnalyzeProductImage(
     : '';
 
   const instruction =
-    `You are an expert UGC ad director. Study this product image carefully. ` +
-    `Write a single vivid scene description (1-2 sentences, max 180 characters) for a ${duration}-second UGC video ad. ` +
-    `The creator named "${avatarName || 'the creator'}" is showcasing "${productName}". ` +
-    `Describe: what action the creator is performing with the product, their expression, and the mood. ` +
-    `Start with an action verb. Be specific about the product based on what you see in the image.` +
+    `You are an expert UGC video ad director and cinematographer. Study the product image carefully. ` +
+    `Write a rich scene brief for a ${duration}-second UGC video ad featuring the creator named "${avatarName || 'the creator'}" showcasing "${productName}". ` +
+    `Your brief must cover ALL of the following elements in 4-6 sentences (max 600 characters total):\n` +
+    `1. SETTING: Describe a specific, vivid real-world environment that fits this product (e.g. a sun-drenched kitchen, outdoor market, gym locker room). Be precise about surfaces, background elements, and atmosphere.\n` +
+    `2. PRODUCT: Based on what you see in the image, describe the product's appearance — colours, packaging, texture, size, any visible branding or labelling.\n` +
+    `3. ACTION: What is the creator doing with the product? Describe the physical gesture, body language, and facial expression in detail.\n` +
+    `4. LIGHTING & MOOD: Describe the lighting quality (golden hour, soft diffused, dramatic side-light, etc.) and the overall emotional tone.\n` +
+    `5. CAMERA FEEL: One sentence on the shot type and movement (e.g. tight close-up with slow rack-focus, handheld medium shot, sweeping pull-back).` +
     brandToneHint +
     productDetailHint +
-    ` Output ONLY the scene description — no titles, no explanations.`;
+    ` Output ONLY the scene brief — no titles, no bullet labels, no extra commentary.`;
 
   const res = await fetch(
     `${DASHSCOPE_BASE}/api/v1/services/aigc/multimodal-generation/generation`,
@@ -500,7 +503,7 @@ export async function dashscopeAnalyzeProductImage(
             },
           ],
         },
-        parameters: { result_format: 'message', max_tokens: 120 },
+        parameters: { result_format: 'message', max_tokens: 500 },
       }),
     }
   );
