@@ -105,9 +105,13 @@ const SETTING_META: Record<
   kling_veo_model: {
     label: 'Kie.ai Video Model',
     description:
-      'Video model used via kie.ai. Sora 2 I2V is recommended (reference images + cinematic quality). Kling 3.0 is great for short clips. Veo3 Fast supports REFERENCE_2_VIDEO mode.',
+      'Video model used via kie.ai. Sora 2 (standard) is recommended — 10s or 15s clips with reference images. Pro adds a quality boost. Veo3 Fast supports REFERENCE_2_VIDEO for longer multi-segment ads.',
     type: 'select',
     options: [
+      'sora-2-image-to-video',
+      'sora-2-text-to-video',
+      'sora-2-image-to-video-stable',
+      'sora-2-text-to-video-stable',
       'sora-2-pro-image-to-video',
       'sora-2-pro-text-to-video',
       'kling/v3.0',
@@ -271,7 +275,7 @@ const SECTIONS = [
  */
 const PROVIDER_DEFAULT_MODELS: Record<string, Partial<Record<string, string>>> = {
   kling: {
-    kling_veo_model: 'sora-2-pro-image-to-video', // Best Kie.ai model — Sora 2 I2V
+    kling_veo_model: 'sora-2-image-to-video', // Sora 2 Standard I2V — cost-efficient
     kie_vision_model: 'gemini-2.5-flash', // Vision + cinematic via Kie.ai (same API key)
     cinematic_prompt_model: 'gemini-2.5-flash', // Routed through Kie.ai for kling provider
     dialogue_model: 'qwen-plus',

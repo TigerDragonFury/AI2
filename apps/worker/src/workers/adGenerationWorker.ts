@@ -1228,7 +1228,8 @@ async function processAdJob(job: Job<{ adId: string }>) {
           klingPrompt,
           klingRefs,
           klingKey,
-          adDuration
+          adDuration,
+          aspectRatioStr
         );
         // TTL: 4 hours — survives multiple 30-min retry cycles
         await redisConnection.set(kieTaskKey, klingTaskId, 'EX', 14400); // 4 h — survives multiple 30-min retry cycles

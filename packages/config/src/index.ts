@@ -63,8 +63,10 @@ export const AI_MODELS = {
   KLING_VEO_QUALITY: 'veo3', // Veo 3.1 Quality — highest fidelity, image-to-video only
 
   // Kie.ai Unified API — Sora 2, Kling 3.0/2.1 (POST /api/v1/jobs/createTask)
-  KIE_SORA2_I2V: 'sora-2-pro-image-to-video', // Sora 2 Pro — image-to-video (up to 3 refs)
-  KIE_SORA2_T2V: 'sora-2-pro-text-to-video', // Sora 2 Pro — text-to-video
+  KIE_SORA2_I2V: 'sora-2-image-to-video', // Sora 2 Standard — image-to-video (up to 3 refs)
+  KIE_SORA2_T2V: 'sora-2-text-to-video', // Sora 2 Standard — text-to-video
+  KIE_SORA2_I2V_PRO: 'sora-2-pro-image-to-video', // Sora 2 Pro — image-to-video (up to 3 refs)
+  KIE_SORA2_T2V_PRO: 'sora-2-pro-text-to-video', // Sora 2 Pro — text-to-video
   KIE_KLING_V3: 'kling/v3.0', // Kling 3.0 — latest generation
   KIE_KLING_V21_PRO: 'kling/v2-1-pro', // Kling 2.1 Pro — high quality
   KIE_KLING_V21_STD: 'kling/v2-1-standard', // Kling 2.1 Standard — faster/cheaper

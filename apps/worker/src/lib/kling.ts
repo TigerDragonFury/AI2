@@ -28,9 +28,20 @@ const MAX_POLLS = 360; // 30 minutes max — Kie.ai's nominal window is 20 min b
 // Models that still use the legacy Veo endpoint
 export const LEGACY_VEO_MODELS = new Set(['veo3', 'veo3_fast']);
 
-// Models routing
-const SORA2_I2V_MODEL = 'sora-2-pro-image-to-video';
-const SORA2_T2V_MODEL = 'sora-2-pro-text-to-video';
+// All Sora 2 image-to-video model IDs (pro + standard + stable variants)
+const SORA2_I2V_MODELS = new Set([
+  'sora-2-image-to-video',
+  'sora-2-image-to-video-stable',
+  'sora-2-pro-image-to-video',
+]);
+// All Sora 2 text-to-video model IDs
+const SORA2_T2V_MODELS = new Set([
+  'sora-2-text-to-video',
+  'sora-2-text-to-video-stable',
+  'sora-2-pro-text-to-video',
+]);
+// Pro-only models (support extra `size` parameter)
+const SORA2_PRO_MODELS = new Set(['sora-2-pro-image-to-video', 'sora-2-pro-text-to-video']);
 
 // ─── Legacy Veo API types ─────────────────────────────────────────────────────
 
@@ -327,7 +338,8 @@ function buildUnifiedInput(
   model: string,
   prompt: string,
   imageUrls: string[],
-  durationSec = 10
+  durationSec = 10,
+  aspectRatio = '9:16'
 ): Record<string, unknown> {
   const validUrls = imageUrls.filter(Boolean);
   const hasImages = validUrls.length > 0;
@@ -335,25 +347,29 @@ function buildUnifiedInput(
   // Sora 2 API n_frames accepts "10" or "15" (bare number strings).
   // "10s"/"15s" are only UI labels on the playground — not valid API values.
   const sora2NFrames = durationSec >= 13 ? '15' : '10';
+  // Map internal aspect ratio to Sora 2 API values (portrait/landscape only)
+  const sora2AspectRatio = aspectRatio === '16:9' ? 'landscape' : 'portrait';
 
   // ── Sora 2 models ──────────────────────────────────────────────────────────
-  if (model === SORA2_I2V_MODEL || (model === SORA2_T2V_MODEL && hasImages)) {
+  const isSora2I2V = SORA2_I2V_MODELS.has(model);
+  const isSora2T2V = SORA2_T2V_MODELS.has(model);
+  if (isSora2I2V || (isSora2T2V && hasImages)) {
     // Auto-upgrade T2V to I2V when images are available
     return {
       prompt,
       image_urls: validUrls.slice(0, 3),
-      aspect_ratio: 'landscape',
+      aspect_ratio: sora2AspectRatio,
       n_frames: sora2NFrames,
-      size: 'high',
+      ...(SORA2_PRO_MODELS.has(model) && { size: 'high' }),
       remove_watermark: true,
     };
   }
-  if (model === SORA2_T2V_MODEL) {
+  if (isSora2T2V) {
     return {
       prompt,
-      aspect_ratio: 'landscape',
+      aspect_ratio: sora2AspectRatio,
       n_frames: sora2NFrames,
-      size: 'high',
+      ...(SORA2_PRO_MODELS.has(model) && { size: 'high' }),
       remove_watermark: true,
     };
   }
@@ -389,12 +405,14 @@ export async function klingVeoSubmitTask(
   prompt: string,
   imageUrls: string[],
   apiKey: string,
-  durationSec = 10
+  durationSec = 10,
+  aspectRatio = '9:16'
 ): Promise<string> {
-  const input = buildUnifiedInput(model, prompt, imageUrls, durationSec);
+  const input = buildUnifiedInput(model, prompt, imageUrls, durationSec, aspectRatio);
+  // Auto-upgrade any Sora 2 T2V model to its I2V counterpart when images are available
   const effectiveModel =
-    model === SORA2_T2V_MODEL && imageUrls.filter(Boolean).length > 0
-      ? SORA2_I2V_MODEL // auto-upgrade
+    SORA2_T2V_MODELS.has(model) && imageUrls.filter(Boolean).length > 0
+      ? model.replace('text-to-video', 'image-to-video')
       : model;
 
   console.log(

@@ -240,18 +240,28 @@ const ASPECT_RATIOS: { value: AspectRatio; label: string; description: string }[
   { value: '1:1', label: '1:1', description: 'Square (Feed)' },
 ];
 
-const DURATIONS = [
+const DURATIONS_VEO = [
   { value: 8, label: '8s', note: 'Quick' },
   { value: 16, label: '16s', note: 'Standard' },
   { value: 24, label: '24s', note: 'Long' },
   { value: 32, label: '32s', note: 'Max' },
 ];
 
+const DURATIONS_SORA2 = [
+  { value: 10, label: '10s', note: 'Standard' },
+  { value: 15, label: '15s', note: 'Long' },
+];
+
+function isSora2Model(model: string) {
+  return model.startsWith('sora-2-');
+}
+
 function PromptStep({
   prompt,
   aspectRatio,
   duration,
   autoPrompt,
+  isSora2,
   onPromptChange,
   onAspectChange,
   onDurationChange,
@@ -261,11 +271,13 @@ function PromptStep({
   aspectRatio: AspectRatio;
   duration: number;
   autoPrompt: boolean;
+  isSora2: boolean;
   onPromptChange: (v: string) => void;
   onAspectChange: (v: AspectRatio) => void;
   onDurationChange: (v: number) => void;
   onAutoPromptChange: (v: boolean) => void;
 }) {
+  const durations = isSora2 ? DURATIONS_SORA2 : DURATIONS_VEO;
   return (
     <div className="space-y-6">
       {/* Auto vs Manual prompt toggle */}
@@ -359,7 +371,7 @@ function PromptStep({
           Video Duration: <span className="font-semibold text-primary">{duration}s</span>
         </label>
         <div className="flex gap-3">
-          {DURATIONS.map((d) => (
+          {durations.map((d) => (
             <button
               key={d.value}
               type="button"
@@ -377,7 +389,9 @@ function PromptStep({
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Veo 3.1: each 8 s segment = 1 generation credit.
+          {isSora2
+            ? 'Sora 2: single generation, 10s or 15s clip.'
+            : 'Veo 3.1: each 8 s segment = 1 generation credit.'}
         </p>
       </div>
     </div>
@@ -498,8 +512,19 @@ export function AdCreatorWizard() {
   const [avatarId, setAvatarId] = useState<string | null>(null);
   const [productId, setProductId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
+
+  // Fetch active model config so we can adapt duration options
+  const token = session?.accessToken as string | undefined;
+  const { data: modelConfig } = useSWR(
+    token ? `${process.env.NEXT_PUBLIC_API_URL}/api/settings/model-config` : null,
+    (url) =>
+      fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((j) => j.data as { klingVeoModel: string; aiProvider: string })
+  );
+  const activeSora2 = modelConfig ? isSora2Model(modelConfig.klingVeoModel) : true; // default to Sora 2
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
-  const [duration, setDuration] = useState(16);
+  const [duration, setDuration] = useState(10); // 10s default for Sora 2
   const [autoPrompt, setAutoPrompt] = useState(true);
   const [autoDialogue, setAutoDialogue] = useState(true);
   const [dialogueText, setDialogueText] = useState('');
@@ -507,7 +532,14 @@ export function AdCreatorWizard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const token = session?.accessToken as string | undefined;
+  // When the model config loads and it's not Sora 2, reset duration to Veo default
+  const [durationInitialized, setDurationInitialized] = useState(false);
+  if (modelConfig && !durationInitialized) {
+    setDurationInitialized(true);
+    if (!isSora2Model(modelConfig.klingVeoModel)) {
+      setDuration(16);
+    }
+  }
 
   const canNext = [!!avatarId, !!productId, autoPrompt || prompt.length >= 10, true][step];
 
@@ -563,6 +595,7 @@ export function AdCreatorWizard() {
             aspectRatio={aspectRatio}
             duration={duration}
             autoPrompt={autoPrompt}
+            isSora2={activeSora2}
             onPromptChange={setPrompt}
             onAspectChange={setAspectRatio}
             onDurationChange={setDuration}

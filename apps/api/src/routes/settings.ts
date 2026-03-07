@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requireAdmin, type AuthRequest } from '../middleware/auth';
 import { createError } from '../middleware/errorHandler';
-import { bustSettingCache } from '../lib/settings';
+import { bustSettingCache, getAppSetting } from '../lib/settings';
 
 export const settingsRouter = Router();
 
@@ -112,6 +112,26 @@ settingsRouter.put('/', requireAuth, requireAdmin, async (req: AuthRequest, res,
         value: maskValue(row.key, row.value),
         updatedAt: row.updatedAt,
         updatedBy: row.updatedBy,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/settings/model-config — non-admin: returns active model names ───
+// Used by the ad creation wizard to adapt duration options for Sora 2 vs Veo.
+settingsRouter.get('/model-config', requireAuth, async (_req, res, next) => {
+  try {
+    const [klingVeoModel, aiProvider] = await Promise.all([
+      getAppSetting('kling_veo_model', 'KLING_VEO_MODEL'),
+      getAppSetting('ai_provider', 'AI_PROVIDER'),
+    ]);
+    res.json({
+      success: true,
+      data: {
+        klingVeoModel: klingVeoModel ?? 'sora-2-image-to-video',
+        aiProvider: aiProvider ?? 'kling',
       },
     });
   } catch (err) {
